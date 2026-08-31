@@ -246,14 +246,14 @@ class VerdictCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainState.spaceBetween,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
                               styleItem.style,
                               style: GoogleFonts.plusJakartaSans(
                                 color: isCurrentImp
                                     ? const Color(0xFFE6B86A)
-                                    : Colors.whiteCE,
+                                    : const Color(0xFFCBD5E1),
                                 fontSize: 13,
                                 fontWeight: isCurrentImp
                                     ? FontWeight.bold
@@ -269,6 +269,7 @@ class VerdictCard extends StatelessWidget {
                             ),
                           ],
                         ),
+
                         const SizedBox(height: 4),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
