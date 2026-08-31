@@ -27,7 +27,8 @@ class HistoryPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
-                mainAxisAlignment: MainState.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
                 children: [
                   Row(
                     children: [

@@ -44,20 +44,21 @@ class _ImageSelectorState extends State<ImageSelector> {
 
   Future<void> _pickFromFile() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 90,
       );
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        if (file.bytes != null) {
-          widget.onImageSelected(file.bytes!, path: file.path);
-        }
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        widget.onImageSelected(bytes, path: image.path);
       }
     } catch (e) {
       print('File pick error: $e');
     }
   }
+
 
   Future<void> _selectSample(SampleMasterpiece sample) async {
     try {
@@ -200,8 +201,9 @@ class _ImageSelectorState extends State<ImageSelector> {
 
         // Section Title: Sample Masterpieces
         Row(
-          mainAxisAlignment: MainState.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+
             Text(
               'Or Try Sample Masterpieces',
               style: GoogleFonts.playfairDisplay(

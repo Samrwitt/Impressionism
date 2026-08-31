@@ -41,8 +41,9 @@ class HeroHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainState.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+
               // Brand logo & title
               Row(
                 children: [

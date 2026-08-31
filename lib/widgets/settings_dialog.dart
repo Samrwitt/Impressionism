@@ -245,7 +245,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
               // Action Buttons
               Row(
-                mainAxisAlignment: MainState.end,
+                mainAxisAlignment: MainAxisAlignment.end,
+
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
