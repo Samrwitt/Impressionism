@@ -1,13 +1,11 @@
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img_pkg;
-import 'package:tflite_flutter/tflite_flutter.dart';
 import '../models/prediction_result.dart';
+import 'tflite_engine.dart';
 
 class ClassifierService {
-  static Interpreter? _interpreter;
   static List<String> _labels = [];
   static bool _isModelLoaded = false;
   static String _statusMessage = 'Initializing on-device engine...';
@@ -41,7 +39,7 @@ class ClassifierService {
       artist: 'Vincent van Gogh',
       year: '1889',
       imageUrl:
-          'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/800px-Starry_Night_-_Google_Art_Project.jpg',
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/800px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg',
       isImpressionism: false,
       expectedStyle: 'Post-Impressionism',
     ),
@@ -65,7 +63,7 @@ class ClassifierService {
     ),
   ];
 
-  /// Initialize local on-device TFLite interpreter and labels asset
+  /// Initialize local on-device interpreter and labels asset
   static Future<void> initialize() async {
     try {
       // 1. Load labels
@@ -76,35 +74,32 @@ class ClassifierService {
           .where((e) => e.isNotEmpty)
           .toList();
 
-      // 2. Load TFLite Model if present
-      try {
-        _interpreter = await Interpreter.fromAsset('assets/models/wikiart_model.tflite');
-        _isModelLoaded = true;
-        _statusMessage = 'TFLite Model Active (${_labels.length} classes)';
-        print('On-device TFLite model loaded successfully!');
-      } catch (e) {
-        _isModelLoaded = false;
-        _statusMessage = 'On-Device Engine Active (Awaiting wikiart_model.tflite)';
-        print('TFLite model file not loaded yet; using local feature engine fallback.');
+      // 2. Initialize platform engine (Native TFLite or Cross-Platform Engine)
+      final success = await TfliteEngine.initialize(_labels);
+      _isModelLoaded = success;
+      if (success) {
+        _statusMessage = 'Native TFLite Engine Active (${_labels.length} classes)';
+      } else {
+        _statusMessage = 'On-Device Engine Active (Offline Ready)';
       }
     } catch (e) {
-      print('Error initializing ClassifierService: $e');
-      _statusMessage = 'On-Device Engine Active';
+      print('ClassifierService init info: $e');
+      _statusMessage = 'On-Device Engine Active (Offline Ready)';
     }
   }
 
   /// On-Device classification method
   static Future<PredictionResult> predictImage(Uint8List imageBytes,
       {String? imageUrl, String? imagePath}) async {
-    // 1. Run local TFLite neural model if loaded
-    if (_isModelLoaded && _interpreter != null) {
-      try {
-        final result = _runTfliteInference(imageBytes,
-            imageUrl: imageUrl, imagePath: imagePath);
-        if (result != null) return result;
-      } catch (e) {
-        print('Error during TFLite inference: $e');
-      }
+    // 1. Try running platform TFLite neural model if supported & loaded
+    final tfliteResult = TfliteEngine.runInference(
+      imageBytes,
+      _labels,
+      imageUrl: imageUrl,
+      imagePath: imagePath,
+    );
+    if (tfliteResult != null) {
+      return tfliteResult;
     }
 
     // 2. Sample Masterpiece offline lookup
@@ -164,107 +159,6 @@ class ClassifierService {
         imageUrl: imageUrl, imagePath: imagePath);
   }
 
-  /// Run TFLite model tensor processing & inference
-  static PredictionResult? _runTfliteInference(Uint8List imageBytes,
-      {String? imageUrl, String? imagePath}) {
-    // Decode image using image package
-    final decodedImg = img_pkg.decodeImage(imageBytes);
-    if (decodedImg == null) return null;
-
-    // Resize to 224x224 RGB input
-    final resizedImg = img_pkg.copyResize(decodedImg, width: 224, height: 224);
-
-    // Prepare input tensor array [1, 224, 224, 3]
-    var input = List.generate(
-      1,
-      (b) => List.generate(
-        224,
-        (y) => List.generate(
-          224,
-          (x) {
-            final pixel = resizedImg.getPixel(x, y);
-            return [
-              pixel.r / 255.0,
-              pixel.g / 255.0,
-              pixel.b / 255.0,
-            ];
-          },
-        ),
-      ),
-    );
-
-    // Prepare output logits tensor array [1, num_labels]
-    final outputLen = _labels.isNotEmpty ? _labels.length : 20;
-    var output = List.generate(1, (b) => List.filled(outputLen, 0.0));
-
-    // Run local inference
-    _interpreter!.run(input, output);
-
-    final logits = output[0];
-    final probs = _softmax(logits);
-
-    // Pair probabilities with labels
-    List<StyleScore> styleScores = [];
-    double impScore = 0.0;
-    double postImpScore = 0.0;
-
-    for (int i = 0; i < probs.length; i++) {
-      final label = i < _labels.length ? _labels[i] : 'Style #$i';
-      final prob = probs[i];
-      final pct = double.parse((prob * 100).toStringAsFixed(2));
-
-      styleScores.add(StyleScore(style: label, score: prob, percentage: pct));
-
-      if (label.toLowerCase().contains('impressionism') &&
-          !label.toLowerCase().contains('post')) {
-        impScore = prob;
-      } else if (label.toLowerCase().contains('post-impressionism')) {
-        postImpScore = prob;
-      }
-    }
-
-    styleScores.sort((a, b) => b.score.compareTo(a.score));
-
-    final topStyle =
-        styleScores.isNotEmpty ? styleScores.first.style : 'Impressionism';
-    final topScore = styleScores.isNotEmpty ? styleScores.first.score : 0.0;
-
-    final isImp = (topStyle.toLowerCase().contains('impressionism') &&
-            !topStyle.toLowerCase().contains('post')) ||
-        (impScore >= 0.25);
-
-    return PredictionResult(
-      isImpressionism: isImp,
-      impressionismScore: impScore,
-      impressionismPercentage:
-          double.parse((impScore * 100).toStringAsFixed(1)),
-      postImpressionismScore: postImpScore,
-      topStyle: topStyle,
-      topScore: topScore,
-      topPercentage: double.parse((topScore * 100).toStringAsFixed(1)),
-      topStyles: styleScores.take(5).toList(),
-      analysis: ArtAnalysis(
-        verdict: isImp
-            ? 'Authentic Impressionism'
-            : 'Non-Impressionist Style ($topStyle)',
-        description:
-            'Classified on-device via TFLite neural model. Identified primary artistic style as $topStyle with ${double.parse((topScore * 100).toStringAsFixed(1))}% confidence.',
-        traits: isImp
-            ? [
-                'Vibrant natural light play',
-                'Textured, open brushwork',
-                'En-plein-air outdoor color harmony'
-              ]
-            : [
-                'Style matched: $topStyle',
-                'Lacks signature Impressionist light diffusion'
-              ],
-      ),
-      imagePath: imagePath,
-      imageUrl: imageUrl,
-    );
-  }
-
   /// Local offline image visual analysis (Color variance & texture histogram)
   static PredictionResult _analyzeLocalImageFeatures(Uint8List imageBytes,
       {String? imageUrl, String? imagePath}) {
@@ -293,7 +187,6 @@ class ClassifierService {
     final avgLum = pixelCount > 0 ? brightnessSum / pixelCount : 128.0;
     final avgVar = pixelCount > 0 ? colorVariance / pixelCount : 40.0;
 
-    // High brightness + vibrant color variance correlates with impressionism plein-air palette
     final impHeuristic = ((avgLum / 255.0) * 0.5 + (avgVar / 100.0) * 0.5).clamp(0.05, 0.95);
     final isImp = impHeuristic >= 0.45;
     final topStyle = isImp ? 'Impressionism' : 'Realism';
@@ -340,12 +233,5 @@ class ClassifierService {
       imagePath: imagePath,
       imageUrl: imageUrl,
     );
-  }
-
-  static List<double> _softmax(List<double> logits) {
-    double maxLogit = logits.reduce(math.max);
-    List<double> exps = logits.map((l) => math.exp(l - maxLogit)).toList();
-    double sumExps = exps.reduce((a, b) => a + b);
-    return exps.map((e) => e / sumExps).toList();
   }
 }
