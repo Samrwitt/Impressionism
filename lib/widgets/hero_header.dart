@@ -177,13 +177,13 @@ class HeroHeader extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(
-                      Icons.auto_awesome,
+                      Icons.memory_rounded,
                       color: Color(0xFFE6B86A),
                       size: 14,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'prithivMLmods/WikiArt-Style',
+                      'WikiArt-Style On-Device',
                       style: GoogleFonts.firaCode(
                         color: const Color(0xFFF1F5F9),
                         fontSize: 11,
@@ -194,18 +194,14 @@ class HeroHeader extends StatelessWidget {
                 ),
               ),
 
-              // Server Status Badge
+              // Offline Status Badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: isBackendOnline
-                      ? const Color(0xFF064E3B).withOpacity(0.5)
-                      : const Color(0xFF78350F).withOpacity(0.5),
+                  color: const Color(0xFF064E3B).withOpacity(0.5),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: isBackendOnline
-                        ? const Color(0xFF10B981)
-                        : const Color(0xFFF59E0B),
+                    color: const Color(0xFF10B981),
                   ),
                 ),
                 child: Row(
@@ -214,20 +210,16 @@ class HeroHeader extends StatelessWidget {
                     Container(
                       width: 7,
                       height: 7,
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isBackendOnline
-                            ? const Color(0xFF34D399)
-                            : const Color(0xFFFBBF24),
+                        color: Color(0xFF34D399),
                       ),
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isBackendOnline ? 'Backend Online' : 'Hybrid Model Mode',
+                      'Offline Engine Active',
                       style: GoogleFonts.plusJakartaSans(
-                        color: isBackendOnline
-                            ? const Color(0xFFA7F3D0)
-                            : const Color(0xFFFDE68A),
+                        color: const Color(0xFFA7F3D0),
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -237,6 +229,7 @@ class HeroHeader extends StatelessWidget {
               ),
             ],
           ),
+
         ],
       ),
     );
