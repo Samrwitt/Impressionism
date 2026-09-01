@@ -227,7 +227,7 @@ class VerdictCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Predictions from HuggingFace model prithivMLmods/WikiArt-Style',
+                  'On-device predictions (WikiArt-Style fine-tuned model)',
                   style: GoogleFonts.plusJakartaSans(
                     color: const Color(0xFF94A3B8),
                     fontSize: 11,
