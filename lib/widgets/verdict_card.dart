@@ -19,25 +19,24 @@ class VerdictCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isImp = result.isImpressionism;
     final primaryColor =
-        isImp ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
+        isImp ? const Color(0xFF16A34A) : const Color(0xFF2563EB);
     final accentGlow =
-        isImp ? const Color(0xFF34D399) : const Color(0xFF60A5FA);
+        isImp ? const Color(0xFF15803D) : const Color(0xFF1D4ED8);
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF131722),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: primaryColor.withOpacity(0.4),
-          width: 2,
+          color: const Color(0xFFE5E0D8),
+          width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: primaryColor.withOpacity(0.15),
-            blurRadius: 25,
-            spreadRadius: 2,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -52,7 +51,7 @@ class VerdictCard extends StatelessWidget {
                 Container(
                   height: 240,
                   width: double.infinity,
-                  color: Colors.black,
+                  color: const Color(0xFFF3F0E8),
                   child: Image.memory(
                     imageBytes,
                     fit: BoxFit.cover,
@@ -63,12 +62,12 @@ class VerdictCard extends StatelessWidget {
                           )
                         : const Center(
                             child: Icon(Icons.art_track_rounded,
-                                color: Colors.white24, size: 64),
+                                color: Colors.black26, size: 64),
                           ),
                   ),
                 ),
 
-                // Gradient dark overlay
+                // Gradient soft overlay
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
@@ -76,23 +75,23 @@ class VerdictCard extends StatelessWidget {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.black.withOpacity(0.2),
-                          Colors.black.withOpacity(0.85),
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.65),
                         ],
                       ),
                     ),
                   ),
                 ),
 
-                // Reset / New Scan button top right
+                // Close / Reset button top right
                 Positioned(
                   top: 12,
                   right: 12,
                   child: IconButton(
                     onPressed: onReset,
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.black.withOpacity(0.6),
-                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white.withOpacity(0.9),
+                      foregroundColor: const Color(0xFF1F2937),
                     ),
                     icon: const Icon(Icons.close_rounded, size: 20),
                   ),
@@ -107,14 +106,14 @@ class VerdictCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.85),
+                      color: Colors.white.withOpacity(0.95),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: primaryColor.withOpacity(0.6),
+                        color: primaryColor.withOpacity(0.4),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: primaryColor.withOpacity(0.3),
+                          color: Colors.black.withOpacity(0.08),
                           blurRadius: 12,
                         ),
                       ],
@@ -125,13 +124,15 @@ class VerdictCard extends StatelessWidget {
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: primaryColor.withOpacity(0.2),
+                            color: isImp
+                                ? const Color(0xFFECFDF5)
+                                : const Color(0xFFEFF6FF),
                           ),
                           child: Icon(
                             isImp
                                 ? Icons.verified_rounded
                                 : Icons.palette_outlined,
-                            color: accentGlow,
+                            color: primaryColor,
                             size: 26,
                           ),
                         ),
@@ -147,9 +148,9 @@ class VerdictCard extends StatelessWidget {
                                     : 'NOT IMPRESSIONISM',
                                 style: GoogleFonts.plusJakartaSans(
                                   color: accentGlow,
-                                  fontSize: 16,
+                                  fontSize: 15,
                                   fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.0,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
                               Text(
@@ -157,9 +158,9 @@ class VerdictCard extends StatelessWidget {
                                     ? 'Confidence: ${result.impressionismPercentage}%'
                                     : 'Top Style: ${result.topStyle} (${result.topPercentage}%)',
                                 style: GoogleFonts.plusJakartaSans(
-                                  color: Colors.white70,
+                                  color: const Color(0xFF4B5563),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
@@ -183,7 +184,7 @@ class VerdictCard extends StatelessWidget {
                 Text(
                   'Impressionism Score',
                   style: GoogleFonts.playfairDisplay(
-                    color: Colors.white,
+                    color: const Color(0xFF1F2937),
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -196,10 +197,10 @@ class VerdictCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                         child: LinearProgressIndicator(
                           value: (result.impressionismScore).clamp(0.0, 1.0),
-                          minHeight: 12,
-                          backgroundColor: const Color(0xFF1E2638),
+                          minHeight: 10,
+                          backgroundColor: const Color(0xFFF3F0E8),
                           valueColor: AlwaysStoppedAnimation<Color>(
-                              isImp ? const Color(0xFF10B981) : const Color(0xFFF59E0B)),
+                              isImp ? const Color(0xFF16A34A) : const Color(0xFFD97706)),
                         ),
                       ),
                     ),
@@ -207,20 +208,20 @@ class VerdictCard extends StatelessWidget {
                     Text(
                       '${result.impressionismPercentage}%',
                       style: GoogleFonts.firaCode(
-                        color: isImp ? const Color(0xFF34D399) : const Color(0xFFFBBF24),
-                        fontSize: 16,
+                        color: isImp ? const Color(0xFF15803D) : const Color(0xFFD97706),
+                        fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 22),
 
                 // Top Art Style Breakdown Header
                 Text(
                   'Art Style Classification Breakdown',
                   style: GoogleFonts.playfairDisplay(
-                    color: Colors.white,
+                    color: const Color(0xFF1F2937),
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -229,11 +230,11 @@ class VerdictCard extends StatelessWidget {
                 Text(
                   'On-device predictions (WikiArt-Style fine-tuned model)',
                   style: GoogleFonts.plusJakartaSans(
-                    color: const Color(0xFF94A3B8),
+                    color: const Color(0xFF6B7280),
                     fontSize: 11,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
 
                 // Style Bars
                 ...result.topStyles.map((styleItem) {
@@ -252,8 +253,8 @@ class VerdictCard extends StatelessWidget {
                               styleItem.style,
                               style: GoogleFonts.plusJakartaSans(
                                 color: isCurrentImp
-                                    ? const Color(0xFFE6B86A)
-                                    : const Color(0xFFCBD5E1),
+                                    ? const Color(0xFFD97706)
+                                    : const Color(0xFF374151),
                                 fontSize: 13,
                                 fontWeight: isCurrentImp
                                     ? FontWeight.bold
@@ -263,24 +264,23 @@ class VerdictCard extends StatelessWidget {
                             Text(
                               '${styleItem.percentage}%',
                               style: GoogleFonts.firaCode(
-                                color: const Color(0xFF94A3B8),
+                                color: const Color(0xFF6B7280),
                                 fontSize: 12,
                               ),
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 4),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
                             value: (styleItem.score).clamp(0.0, 1.0),
                             minHeight: 6,
-                            backgroundColor: const Color(0xFF1E2638),
+                            backgroundColor: const Color(0xFFF3F0E8),
                             valueColor: AlwaysStoppedAnimation<Color>(
                               isCurrentImp
-                                  ? const Color(0xFFE6B86A)
-                                  : const Color(0xFF475569),
+                                  ? const Color(0xFFD97706)
+                                  : const Color(0xFF9CA3AF),
                             ),
                           ),
                         ),
@@ -299,12 +299,13 @@ class VerdictCard extends StatelessWidget {
                     icon: const Icon(Icons.refresh_rounded),
                     label: const Text('Analyze Another Artwork'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF242C3F),
-                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFFFAF8F5),
+                      foregroundColor: const Color(0xFF374151),
+                      elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: Color(0xFF475569)),
+                        side: const BorderSide(color: Color(0xFFD1D5DB)),
                       ),
                       textStyle: GoogleFonts.plusJakartaSans(
                         fontWeight: FontWeight.bold,

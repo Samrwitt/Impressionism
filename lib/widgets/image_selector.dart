@@ -2,10 +2,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import '../models/prediction_result.dart';
-import '../services/api_service.dart';
+import '../services/classifier_service.dart';
 
 class ImageSelector extends StatefulWidget {
   final Function(Uint8List bytes, {String? path, String? url}) onImageSelected;
@@ -59,10 +58,8 @@ class _ImageSelectorState extends State<ImageSelector> {
     }
   }
 
-
   Future<void> _selectSample(SampleMasterpiece sample) async {
     try {
-      // Download sample image bytes
       final res = await http.get(Uri.parse(sample.imageUrl));
       if (res.statusCode == 200) {
         widget.onImageSelected(res.bodyBytes, url: sample.imageUrl);
@@ -77,24 +74,24 @@ class _ImageSelectorState extends State<ImageSelector> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Main dropzone / uploader card
+        // Main Google style uploader card
         GestureDetector(
           onTap: widget.isLoading ? null : _pickFromFile,
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
             decoration: BoxDecoration(
-              color: const Color(0xFF131722).withOpacity(0.8),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: const Color(0xFF334155),
+                color: const Color(0xFFE5E0D8),
                 width: 1.5,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 15,
-                  offset: const Offset(0, 6),
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -102,43 +99,37 @@ class _ImageSelectorState extends State<ImageSelector> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF1E2638),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFE6B86A).withOpacity(0.15),
-                        blurRadius: 20,
-                        spreadRadius: 4,
-                      ),
-                    ],
+                    color: const Color(0xFFFEF3C7),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
                   ),
                   child: const Icon(
                     Icons.add_a_photo_outlined,
-                    size: 38,
-                    color: Color(0xFFE6B86A),
+                    size: 36,
+                    color: Color(0xFFD97706),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Capture or Upload Artwork',
-                  style: GoogleFonts.plusJakartaSans(
-                    color: Colors.white,
-                    fontSize: 18,
+                  'Analyze Artwork Style',
+                  style: GoogleFonts.playfairDisplay(
+                    color: const Color(0xFF1F2937),
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Take a picture of a painting, sketch, or photo to detect Impressionism',
+                  'Capture or upload a painting to test Impressionism traits',
                   style: GoogleFonts.plusJakartaSans(
-                    color: const Color(0xFF94A3B8),
+                    color: const Color(0xFF6B7280),
                     fontSize: 13,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 22),
 
                 // Button options
                 Wrap(
@@ -146,39 +137,40 @@ class _ImageSelectorState extends State<ImageSelector> {
                   runSpacing: 10,
                   alignment: WrapAlignment.center,
                   children: [
-                    // Take Picture button
+                    // Take Picture Button
                     ElevatedButton.icon(
                       onPressed: widget.isLoading ? null : _takePhoto,
                       icon: const Icon(Icons.camera_alt_rounded, size: 18),
                       label: const Text('Take Picture'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE6B86A),
-                        foregroundColor: const Color(0xFF0D0F14),
-                        elevation: 4,
+                        backgroundColor: const Color(0xFFD97706),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
+                          horizontal: 22,
                           vertical: 12,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         textStyle: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
                       ),
                     ),
 
-                    // Pick File button
+                    // Pick File Button
                     OutlinedButton.icon(
                       onPressed: widget.isLoading ? null : _pickFromFile,
                       icon: const Icon(Icons.photo_library_rounded, size: 18),
                       label: const Text('Upload File'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFE2E8F0),
-                        side: const BorderSide(color: Color(0xFF475569)),
+                        foregroundColor: const Color(0xFF374151),
+                        side: const BorderSide(color: Color(0xFFD1D5DB)),
+                        backgroundColor: const Color(0xFFFAF8F5),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
+                          horizontal: 22,
                           vertical: 12,
                         ),
                         shape: RoundedRectangleBorder(
@@ -197,27 +189,26 @@ class _ImageSelectorState extends State<ImageSelector> {
           ),
         ),
 
-        const SizedBox(height: 24),
+        const SizedBox(height: 28),
 
         // Section Title: Sample Masterpieces
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-
             Text(
-              'Or Try Sample Masterpieces',
+              'Sample Masterpieces',
               style: GoogleFonts.playfairDisplay(
-                color: Colors.white,
+                color: const Color(0xFF1F2937),
                 fontSize: 18,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
               ),
             ),
             Text(
-              '1-Click AI Test',
+              '1-Click Demo',
               style: GoogleFonts.plusJakartaSans(
-                color: const Color(0xFFE6B86A),
+                color: const Color(0xFFD97706),
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
@@ -226,26 +217,33 @@ class _ImageSelectorState extends State<ImageSelector> {
 
         // Horizontal Carousel of Masterpieces
         SizedBox(
-          height: 125,
+          height: 135,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: ApiService.sampleMasterpieces.length,
+            itemCount: ClassifierService.sampleMasterpieces.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
-              final sample = ApiService.sampleMasterpieces[index];
+              final sample = ClassifierService.sampleMasterpieces[index];
               return GestureDetector(
                 onTap: widget.isLoading ? null : () => _selectSample(sample),
                 child: Container(
-                  width: 150,
+                  width: 155,
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A2130),
-                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: sample.isImpressionism
-                          ? const Color(0xFFE6B86A).withOpacity(0.4)
-                          : const Color(0xFF334155),
+                          ? const Color(0xFFFDE68A)
+                          : const Color(0xFFE5E0D8),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -260,10 +258,10 @@ class _ImageSelectorState extends State<ImageSelector> {
                                 sample.imageUrl,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => Container(
-                                  color: const Color(0xFF242C3F),
+                                  color: const Color(0xFFF3F0E8),
                                   child: const Icon(
                                     Icons.image_not_supported_outlined,
-                                    color: Colors.white54,
+                                    color: Colors.black38,
                                   ),
                                 ),
                               ),
@@ -275,16 +273,23 @@ class _ImageSelectorState extends State<ImageSelector> {
                                       horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
                                     color: sample.isImpressionism
-                                        ? const Color(0xFF059669)
-                                        : const Color(0xFF475569),
+                                        ? const Color(0xFFECFDF5)
+                                        : const Color(0xFFF3F4F6),
                                     borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: sample.isImpressionism
+                                          ? const Color(0xFFA7F3D0)
+                                          : const Color(0xFFE5E7EB),
+                                    ),
                                   ),
                                   child: Text(
                                     sample.isImpressionism
                                         ? 'Impressionism'
                                         : 'Non-Imp.',
-                                    style: const TextStyle(
-                                      color: Colors.white,
+                                    style: TextStyle(
+                                      color: sample.isImpressionism
+                                          ? const Color(0xFF047857)
+                                          : const Color(0xFF4B5563),
                                       fontSize: 9,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -301,7 +306,7 @@ class _ImageSelectorState extends State<ImageSelector> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.plusJakartaSans(
-                          color: Colors.white,
+                          color: const Color(0xFF1F2937),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
@@ -311,7 +316,7 @@ class _ImageSelectorState extends State<ImageSelector> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.plusJakartaSans(
-                          color: const Color(0xFF94A3B8),
+                          color: const Color(0xFF6B7280),
                           fontSize: 10,
                         ),
                       ),

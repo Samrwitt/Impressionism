@@ -24,18 +24,18 @@ class ImpressionismApp extends StatelessWidget {
       title: 'Impressionist AI - Art Style Classifier',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0D0F14),
-        primaryColor: const Color(0xFFE6B86A),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFE6B86A),
-          secondary: Color(0xFF34D399),
-          surface: Color(0xFF131722),
-          background: Color(0xFF0D0F14),
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xFFFDFBF7),
+        primaryColor: const Color(0xFFD97706),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFFD97706),
+          secondary: Color(0xFF16A34A),
+          surface: Color(0xFFFFFFFF),
+          background: Color(0xFFFDFBF7),
         ),
         useMaterial3: true,
         textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          ThemeData.dark().textTheme,
+          ThemeData.light().textTheme,
         ),
       ),
       home: const ImpressionismHomeScreen(),
@@ -156,7 +156,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Hero Header
+            // Google style Light Hero Header
             HeroHeader(
               onOpenSettings: _openSettings,
               onOpenHistory: _openHistory,
@@ -174,32 +174,39 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Loading indicator overlay
+                        // Light loading indicator overlay
                         if (_isLoading)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(vertical: 60),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF131722),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFF2E384D)),
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: const Color(0xFFEFECE6)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
                             child: Column(
                               children: [
                                 const SizedBox(
-                                  width: 48,
-                                  height: 48,
+                                  width: 44,
+                                  height: 44,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 3.5,
-                                    color: Color(0xFFE6B86A),
+                                    color: Color(0xFFD97706),
                                   ),
                                 ),
                                 const SizedBox(height: 20),
                                 Text(
                                   'Analyzing Artwork Style...',
                                   style: GoogleFonts.playfairDisplay(
-                                    color: Colors.white,
-                                    fontSize: 18,
+                                    color: const Color(0xFF1F2937),
+                                    fontSize: 19,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -207,14 +214,13 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                                 Text(
                                   'Executing On-Device Tensor Inference...',
                                   style: GoogleFonts.plusJakartaSans(
-                                    color: const Color(0xFF94A3B8),
-                                    fontSize: 12,
+                                    color: const Color(0xFF6B7280),
+                                    fontSize: 13,
                                   ),
                                 ),
                               ],
                             ),
                           )
-
                         else if (_currentResult != null &&
                             _currentImageBytes != null) ...[
                           // Result Verdict Card

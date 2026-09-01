@@ -18,7 +18,7 @@ class HistoryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: const Color(0xFF0F121C),
+      backgroundColor: const Color(0xFFFDFBF7),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,20 +28,19 @@ class HistoryPanel extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-
                 children: [
                   Row(
                     children: [
                       const Icon(
                         Icons.history_rounded,
-                        color: Color(0xFFE6B86A),
+                        color: Color(0xFFD97706),
                         size: 24,
                       ),
                       const SizedBox(width: 10),
                       Text(
                         'Scan History',
                         style: GoogleFonts.playfairDisplay(
-                          color: Colors.white,
+                          color: const Color(0xFF1F2937),
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -56,13 +55,14 @@ class HistoryPanel extends StatelessWidget {
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.redAccent,
                           fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-            const Divider(color: Color(0xFF242C3F), height: 1),
+            const Divider(color: Color(0xFFEFECE6), height: 1),
 
             // History Items List
             Expanded(
@@ -73,23 +73,24 @@ class HistoryPanel extends StatelessWidget {
                         children: [
                           const Icon(
                             Icons.photo_album_outlined,
-                            color: Color(0xFF475569),
+                            color: Color(0xFF9CA3AF),
                             size: 48,
                           ),
                           const SizedBox(height: 12),
                           Text(
                             'No scan history yet',
                             style: GoogleFonts.plusJakartaSans(
-                              color: const Color(0xFF94A3B8),
+                              color: const Color(0xFF4B5563),
                               fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             'Scanned artwork will appear here',
                             style: GoogleFonts.plusJakartaSans(
-                              color: const Color(0xFF64748B),
-                              fontSize: 11,
+                              color: const Color(0xFF9CA3AF),
+                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -98,7 +99,7 @@ class HistoryPanel extends StatelessWidget {
                   : ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: historyItems.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final item = historyItems[index];
                         final result = item['result'] as PredictionResult;
@@ -109,13 +110,20 @@ class HistoryPanel extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF19202F),
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: result.isImpressionism
-                                    ? const Color(0xFF10B981).withOpacity(0.4)
-                                    : const Color(0xFF334155),
+                                    ? const Color(0xFFA7F3D0)
+                                    : const Color(0xFFE5E0D8),
                               ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.02),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
                             child: Row(
                               children: [
@@ -131,10 +139,10 @@ class HistoryPanel extends StatelessWidget {
                                             ? Image.network(result.imageUrl!,
                                                 fit: BoxFit.cover)
                                             : Container(
-                                                color: const Color(0xFF242C3F),
+                                                color: const Color(0xFFF3F0E8),
                                                 child: const Icon(
                                                     Icons.image,
-                                                    color: Colors.white38),
+                                                    color: Colors.black38),
                                               ),
                                   ),
                                 ),
@@ -149,7 +157,7 @@ class HistoryPanel extends StatelessWidget {
                                             ? 'Impressionism (${result.impressionismPercentage}%)'
                                             : result.topStyle,
                                         style: GoogleFonts.plusJakartaSans(
-                                          color: Colors.white,
+                                          color: const Color(0xFF1F2937),
                                           fontSize: 13,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -161,9 +169,10 @@ class HistoryPanel extends StatelessWidget {
                                             : 'Score: ${result.topPercentage}%',
                                         style: GoogleFonts.plusJakartaSans(
                                           color: result.isImpressionism
-                                              ? const Color(0xFF34D399)
-                                              : const Color(0xFF94A3B8),
+                                              ? const Color(0xFF047857)
+                                              : const Color(0xFF6B7280),
                                           fontSize: 11,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ],
@@ -174,8 +183,8 @@ class HistoryPanel extends StatelessWidget {
                                       ? Icons.check_circle_rounded
                                       : Icons.chevron_right_rounded,
                                   color: result.isImpressionism
-                                      ? const Color(0xFF10B981)
-                                      : const Color(0xFF64748B),
+                                      ? const Color(0xFF16A34A)
+                                      : const Color(0xFF9CA3AF),
                                   size: 20,
                                 ),
                               ],
