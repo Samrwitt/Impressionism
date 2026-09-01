@@ -21,17 +21,17 @@ class ImpressionismApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Impressionist AI - Art Style Classifier',
+      title: 'Is It Impressionism?',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFFDFBF7),
-        primaryColor: const Color(0xFFD97706),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
+        primaryColor: const Color(0xFF0284C7),
         colorScheme: const ColorScheme.light(
-          primary: Color(0xFFD97706),
-          secondary: Color(0xFF16A34A),
+          primary: Color(0xFF0284C7),
+          secondary: Color(0xFF0EA5E9),
           surface: Color(0xFFFFFFFF),
-          background: Color(0xFFFDFBF7),
+          background: Color(0xFFF8FAFC),
         ),
         useMaterial3: true,
         textTheme: GoogleFonts.plusJakartaSansTextTheme(
@@ -156,12 +156,11 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Google style Light Hero Header
+            // Light Blue Hero Header
             HeroHeader(
               onOpenSettings: _openSettings,
               onOpenHistory: _openHistory,
               historyCount: _historyItems.length,
-              isBackendOnline: true,
             ),
 
             // Scrollable Body Content
@@ -182,7 +181,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: const Color(0xFFEFECE6)),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.04),
@@ -198,14 +197,14 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                                   height: 44,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 3.5,
-                                    color: Color(0xFFD97706),
+                                    color: Color(0xFF0284C7),
                                   ),
                                 ),
                                 const SizedBox(height: 20),
                                 Text(
                                   'Analyzing Artwork Style...',
                                   style: GoogleFonts.playfairDisplay(
-                                    color: const Color(0xFF1F2937),
+                                    color: const Color(0xFF0F172A),
                                     fontSize: 19,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -214,7 +213,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                                 Text(
                                   'Executing On-Device Tensor Inference...',
                                   style: GoogleFonts.plusJakartaSans(
-                                    color: const Color(0xFF6B7280),
+                                    color: const Color(0xFF64748B),
                                     fontSize: 13,
                                   ),
                                 ),
@@ -236,7 +235,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                             detectedTraits: _currentResult!.analysis.traits,
                           ),
                         ] else ...[
-                          // Main Image Selector (Camera / Upload / Samples)
+                          // Main Image Selector (Camera / Upload)
                           ImageSelector(
                             onImageSelected: _processImage,
                             isLoading: _isLoading,

@@ -19,9 +19,9 @@ class VerdictCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isImp = result.isImpressionism;
     final primaryColor =
-        isImp ? const Color(0xFF16A34A) : const Color(0xFF2563EB);
+        isImp ? const Color(0xFF16A34A) : const Color(0xFF0284C7);
     final accentGlow =
-        isImp ? const Color(0xFF15803D) : const Color(0xFF1D4ED8);
+        isImp ? const Color(0xFF15803D) : const Color(0xFF0369A1);
 
     return Container(
       width: double.infinity,
@@ -29,7 +29,7 @@ class VerdictCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: const Color(0xFFE5E0D8),
+          color: const Color(0xFFE2E8F0),
           width: 1.5,
         ),
         boxShadow: [
@@ -51,7 +51,7 @@ class VerdictCard extends StatelessWidget {
                 Container(
                   height: 240,
                   width: double.infinity,
-                  color: const Color(0xFFF3F0E8),
+                  color: const Color(0xFFF1F5F9),
                   child: Image.memory(
                     imageBytes,
                     fit: BoxFit.cover,
@@ -91,7 +91,7 @@ class VerdictCard extends StatelessWidget {
                     onPressed: onReset,
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.white.withOpacity(0.9),
-                      foregroundColor: const Color(0xFF1F2937),
+                      foregroundColor: const Color(0xFF0F172A),
                     ),
                     icon: const Icon(Icons.close_rounded, size: 20),
                   ),
@@ -126,7 +126,7 @@ class VerdictCard extends StatelessWidget {
                             shape: BoxShape.circle,
                             color: isImp
                                 ? const Color(0xFFECFDF5)
-                                : const Color(0xFFEFF6FF),
+                                : const Color(0xFFE0F2FE),
                           ),
                           child: Icon(
                             isImp
@@ -158,7 +158,7 @@ class VerdictCard extends StatelessWidget {
                                     ? 'Confidence: ${result.impressionismPercentage}%'
                                     : 'Top Style: ${result.topStyle} (${result.topPercentage}%)',
                                 style: GoogleFonts.plusJakartaSans(
-                                  color: const Color(0xFF4B5563),
+                                  color: const Color(0xFF475569),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -184,7 +184,7 @@ class VerdictCard extends StatelessWidget {
                 Text(
                   'Impressionism Score',
                   style: GoogleFonts.playfairDisplay(
-                    color: const Color(0xFF1F2937),
+                    color: const Color(0xFF0F172A),
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -198,9 +198,9 @@ class VerdictCard extends StatelessWidget {
                         child: LinearProgressIndicator(
                           value: (result.impressionismScore).clamp(0.0, 1.0),
                           minHeight: 10,
-                          backgroundColor: const Color(0xFFF3F0E8),
+                          backgroundColor: const Color(0xFFF1F5F9),
                           valueColor: AlwaysStoppedAnimation<Color>(
-                              isImp ? const Color(0xFF16A34A) : const Color(0xFFD97706)),
+                              isImp ? const Color(0xFF16A34A) : const Color(0xFF0284C7)),
                         ),
                       ),
                     ),
@@ -208,7 +208,7 @@ class VerdictCard extends StatelessWidget {
                     Text(
                       '${result.impressionismPercentage}%',
                       style: GoogleFonts.firaCode(
-                        color: isImp ? const Color(0xFF15803D) : const Color(0xFFD97706),
+                        color: isImp ? const Color(0xFF15803D) : const Color(0xFF0284C7),
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
@@ -221,7 +221,7 @@ class VerdictCard extends StatelessWidget {
                 Text(
                   'Art Style Classification Breakdown',
                   style: GoogleFonts.playfairDisplay(
-                    color: const Color(0xFF1F2937),
+                    color: const Color(0xFF0F172A),
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -230,7 +230,7 @@ class VerdictCard extends StatelessWidget {
                 Text(
                   'On-device predictions (WikiArt-Style fine-tuned model)',
                   style: GoogleFonts.plusJakartaSans(
-                    color: const Color(0xFF6B7280),
+                    color: const Color(0xFF64748B),
                     fontSize: 11,
                   ),
                 ),
@@ -253,8 +253,8 @@ class VerdictCard extends StatelessWidget {
                               styleItem.style,
                               style: GoogleFonts.plusJakartaSans(
                                 color: isCurrentImp
-                                    ? const Color(0xFFD97706)
-                                    : const Color(0xFF374151),
+                                    ? const Color(0xFF0284C7)
+                                    : const Color(0xFF334155),
                                 fontSize: 13,
                                 fontWeight: isCurrentImp
                                     ? FontWeight.bold
@@ -264,7 +264,7 @@ class VerdictCard extends StatelessWidget {
                             Text(
                               '${styleItem.percentage}%',
                               style: GoogleFonts.firaCode(
-                                color: const Color(0xFF6B7280),
+                                color: const Color(0xFF64748B),
                                 fontSize: 12,
                               ),
                             ),
@@ -276,11 +276,11 @@ class VerdictCard extends StatelessWidget {
                           child: LinearProgressIndicator(
                             value: (styleItem.score).clamp(0.0, 1.0),
                             minHeight: 6,
-                            backgroundColor: const Color(0xFFF3F0E8),
+                            backgroundColor: const Color(0xFFF1F5F9),
                             valueColor: AlwaysStoppedAnimation<Color>(
                               isCurrentImp
-                                  ? const Color(0xFFD97706)
-                                  : const Color(0xFF9CA3AF),
+                                  ? const Color(0xFF0284C7)
+                                  : const Color(0xFF94A3B8),
                             ),
                           ),
                         ),
@@ -299,13 +299,13 @@ class VerdictCard extends StatelessWidget {
                     icon: const Icon(Icons.refresh_rounded),
                     label: const Text('Analyze Another Artwork'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFAF8F5),
-                      foregroundColor: const Color(0xFF374151),
+                      backgroundColor: const Color(0xFFF8FAFC),
+                      foregroundColor: const Color(0xFF334155),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: Color(0xFFD1D5DB)),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
                       ),
                       textStyle: GoogleFonts.plusJakartaSans(
                         fontWeight: FontWeight.bold,

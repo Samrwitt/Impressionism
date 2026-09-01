@@ -16,7 +16,7 @@ class SettingsDialog extends StatelessWidget {
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFE5E0D8)),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -29,13 +29,13 @@ class SettingsDialog extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFFEF3C7),
+                      color: Color(0xFFE0F2FE),
                     ),
                     child: const Icon(
                       Icons.memory_rounded,
-                      color: Color(0xFFD97706),
+                      color: Color(0xFF0284C7),
                       size: 22,
                     ),
                   ),
@@ -43,7 +43,7 @@ class SettingsDialog extends StatelessWidget {
                   Text(
                     'On-Device AI Engine Specs',
                     style: GoogleFonts.playfairDisplay(
-                      color: const Color(0xFF1F2937),
+                      color: const Color(0xFF0F172A),
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -56,9 +56,9 @@ class SettingsDialog extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFAF8F5),
+                  color: const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE5E0D8)),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,7 +71,7 @@ class SettingsDialog extends StatelessWidget {
                         Text(
                           'Engine Status:',
                           style: GoogleFonts.plusJakartaSans(
-                            color: const Color(0xFF6B7280),
+                            color: const Color(0xFF64748B),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -82,7 +82,7 @@ class SettingsDialog extends StatelessWidget {
                     Text(
                       ClassifierService.statusMessage,
                       style: GoogleFonts.firaCode(
-                        color: const Color(0xFFD97706),
+                        color: const Color(0xFF0284C7),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
@@ -106,9 +106,9 @@ class SettingsDialog extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7).withOpacity(0.5),
+                  color: const Color(0xFFE0F2FE).withOpacity(0.5),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFDE68A)),
+                  border: Border.all(color: const Color(0xFFBAE6FD)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,7 +116,7 @@ class SettingsDialog extends StatelessWidget {
                     Text(
                       'Adding Custom TFLite Weights:',
                       style: GoogleFonts.plusJakartaSans(
-                        color: const Color(0xFF92400E),
+                        color: const Color(0xFF0369A1),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
@@ -125,7 +125,7 @@ class SettingsDialog extends StatelessWidget {
                     Text(
                       'Place your converted `wikiart_model.tflite` into the `assets/models/` directory. The application will automatically execute tensor inference offline without backend servers!',
                       style: GoogleFonts.plusJakartaSans(
-                        color: const Color(0xFF78350F),
+                        color: const Color(0xFF0C4A6E),
                         fontSize: 11,
                         height: 1.4,
                       ),
@@ -146,7 +146,7 @@ class SettingsDialog extends StatelessWidget {
                       Navigator.of(context).pop();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD97706),
+                      backgroundColor: const Color(0xFF0284C7),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 24, vertical: 12),
@@ -177,7 +177,7 @@ class SettingsDialog extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.plusJakartaSans(
-              color: const Color(0xFF6B7280),
+              color: const Color(0xFF64748B),
               fontSize: 12,
             ),
           ),
@@ -186,7 +186,7 @@ class SettingsDialog extends StatelessWidget {
               value,
               textAlign: TextAlign.end,
               style: GoogleFonts.firaCode(
-                color: const Color(0xFF1F2937),
+                color: const Color(0xFF0F172A),
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),

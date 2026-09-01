@@ -17,7 +17,7 @@ class InsightsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE5E0D8)),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -33,13 +33,13 @@ class InsightsCard extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFFFEF3C7),
+                  color: Color(0xFFE0F2FE),
                 ),
                 child: const Icon(
                   Icons.lightbulb_outline_rounded,
-                  color: Color(0xFFD97706),
+                  color: Color(0xFF0284C7),
                   size: 20,
                 ),
               ),
@@ -47,7 +47,7 @@ class InsightsCard extends StatelessWidget {
               Text(
                 'Artistic Features & AI Insights',
                 style: GoogleFonts.playfairDisplay(
-                  color: const Color(0xFF1F2937),
+                  color: const Color(0xFF0F172A),
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -66,7 +66,7 @@ class InsightsCard extends StatelessWidget {
                       padding: EdgeInsets.only(top: 3),
                       child: Icon(
                         Icons.check_circle_outline_rounded,
-                        color: Color(0xFFD97706),
+                        color: Color(0xFF0284C7),
                         size: 16,
                       ),
                     ),
@@ -75,7 +75,7 @@ class InsightsCard extends StatelessWidget {
                       child: Text(
                         trait,
                         style: GoogleFonts.plusJakartaSans(
-                          color: const Color(0xFF374151),
+                          color: const Color(0xFF334155),
                           fontSize: 13,
                           height: 1.4,
                         ),
@@ -85,13 +85,13 @@ class InsightsCard extends StatelessWidget {
                 ),
               )),
 
-          const Divider(color: Color(0xFFEFECE6), height: 24),
+          const Divider(color: Color(0xFFE2E8F0), height: 24),
 
           // About Impressionism Card
           Text(
             'What is Impressionism?',
             style: GoogleFonts.plusJakartaSans(
-              color: const Color(0xFF1F2937),
+              color: const Color(0xFF0F172A),
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
@@ -100,7 +100,7 @@ class InsightsCard extends StatelessWidget {
           Text(
             'Impressionism originated in 19th-century France with artists like Claude Monet, Pierre-Auguste Renoir, and Camille Pissarro. Key characteristics include open compositions, emphasis on accurate depiction of light in its changing qualities, ordinary subject matter, and small, thin, yet visible brush strokes.',
             style: GoogleFonts.plusJakartaSans(
-              color: const Color(0xFF6B7280),
+              color: const Color(0xFF64748B),
               fontSize: 12,
               height: 1.5,
             ),

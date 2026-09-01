@@ -36,7 +36,6 @@ dependencies:
   image_picker: ^1.2.3
   file_picker: ^12.1.2
   google_fonts: ^8.2.1
-  tflite_flutter: ^0.10.4
   image: ^4.2.0
 
 dev_dependencies:
