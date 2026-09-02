@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'models/prediction_result.dart';
-import 'services/api_service.dart';
+import 'services/classifier_service.dart';
 import 'widgets/hero_header.dart';
 import 'widgets/image_selector.dart';
 import 'widgets/verdict_card.dart';
@@ -21,21 +21,21 @@ class ImpressionismApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Impressionist AI - Art Style Classifier',
+      title: 'Is It Impressionism?',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0D0F14),
-        primaryColor: const Color(0xFFE6B86A),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFE6B86A),
-          secondary: Color(0xFF34D399),
-          surface: Color(0xFF131722),
-          background: Color(0xFF0D0F14),
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
+        primaryColor: const Color(0xFF0284C7),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF0284C7),
+          secondary: Color(0xFF0EA5E9),
+          surface: Color(0xFFFFFFFF),
+          background: Color(0xFFF8FAFC),
         ),
         useMaterial3: true,
         textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          ThemeData.dark().textTheme,
+          ThemeData.light().textTheme,
         ),
       ),
       home: const ImpressionismHomeScreen(),
@@ -55,7 +55,6 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   bool _isLoading = false;
-  bool _isBackendOnline = false;
   Uint8List? _currentImageBytes;
   PredictionResult? _currentResult;
 
@@ -64,14 +63,12 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _checkBackend();
+    _initClassifier();
   }
 
-  Future<void> _checkBackend() async {
-    final online = await ApiService.checkBackendHealth();
-    setState(() {
-      _isBackendOnline = online;
-    });
+  Future<void> _initClassifier() async {
+    await ClassifierService.initialize();
+    if (mounted) setState(() {});
   }
 
   Future<void> _processImage(Uint8List bytes,
@@ -82,7 +79,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
     });
 
     try {
-      final result = await ApiService.predictImage(
+      final result = await ClassifierService.predictImage(
         bytes,
         imageUrl: url,
         imagePath: path,
@@ -127,7 +124,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
       context: context,
       builder: (context) => SettingsDialog(
         onSaved: () {
-          _checkBackend();
+          setState(() {});
         },
       ),
     );
@@ -159,12 +156,11 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Hero Header
+            // Light Blue Hero Header
             HeroHeader(
               onOpenSettings: _openSettings,
               onOpenHistory: _openHistory,
               historyCount: _historyItems.length,
-              isBackendOnline: _isBackendOnline,
             ),
 
             // Scrollable Body Content
@@ -177,41 +173,48 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Loading indicator overlay
+                        // Light loading indicator overlay
                         if (_isLoading)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(vertical: 60),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF131722),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFF2E384D)),
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
                             child: Column(
                               children: [
                                 const SizedBox(
-                                  width: 48,
-                                  height: 48,
+                                  width: 44,
+                                  height: 44,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 3.5,
-                                    color: Color(0xFFE6B86A),
+                                    color: Color(0xFF0284C7),
                                   ),
                                 ),
                                 const SizedBox(height: 20),
                                 Text(
                                   'Analyzing Artwork Style...',
                                   style: GoogleFonts.playfairDisplay(
-                                    color: Colors.white,
-                                    fontSize: 18,
+                                    color: const Color(0xFF0F172A),
+                                    fontSize: 19,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Running HuggingFace WikiArt-Style SigLIP model',
+                                  'Executing On-Device Tensor Inference...',
                                   style: GoogleFonts.plusJakartaSans(
-                                    color: const Color(0xFF94A3B8),
-                                    fontSize: 12,
+                                    color: const Color(0xFF64748B),
+                                    fontSize: 13,
                                   ),
                                 ),
                               ],
@@ -232,7 +235,7 @@ class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
                             detectedTraits: _currentResult!.analysis.traits,
                           ),
                         ] else ...[
-                          // Main Image Selector (Camera / Upload / Samples)
+                          // Main Image Selector (Camera / Upload)
                           ImageSelector(
                             onImageSelected: _processImage,
                             isLoading: _isLoading,
