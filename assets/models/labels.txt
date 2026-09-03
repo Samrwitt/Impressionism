@@ -1,20 +1,8 @@
-Impressionism
-Post-Impressionism
-Realism
-High Renaissance
-Expressionism
-Cubism
-Surrealism
-Baroque
-Art Nouveau
-Romanticism
-Pop Art
-Abstract Art
-Neoclassicism
-Fauvism
-Rococo
-Symbolism
-Northern Renaissance
-Mannerism
-Constructivism
-Art Deco
+Renaissance|c. 1400–1600
+Baroque|c. 1600–1750
+Romanticism|c. 1800–1850
+Realism|c. 1840–1880
+Impressionism|c. 1860–1890
+Post-Impressionism|c. 1886–1905
+Modern|c. 1900–1945
+Contemporary|c. 1945–today

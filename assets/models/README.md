@@ -1,12 +1,11 @@
-# On-Device Model Assets Guide
+# On-device art era model
 
-Place your converted TensorFlow Lite model in this directory:
+A tiny MLP (`era_mlp.json`) runs entirely on the phone. It maps a photo to:
 
-- **Model path**: `assets/models/wikiart_model.tflite`
-- **Labels path**: `assets/models/labels.txt`
+Renaissance, Baroque, Romanticism, Realism, Impressionism, Post-Impressionism, Modern, Contemporary.
 
-## Converting PyTorch / Hugging Face model (`prithivMLmods/WikiArt-Style`) to TFLite:
-1. Export model to ONNX using `optimum-cli` or `torch.onnx.export`
-2. Convert ONNX to TensorFlow saved model using `onnx2tf` or `onnx-tensorflow`
-3. Convert TensorFlow saved model to TFLite using `tf.lite.TFLiteConverter.from_saved_model()`
-4. Place `wikiart_model.tflite` here!
+Rebuild weights:
+
+```
+.venv/bin/python tools/train_era_model.py
+```

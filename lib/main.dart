@@ -1,255 +1,304 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'models/prediction_result.dart';
 import 'services/classifier_service.dart';
-import 'widgets/hero_header.dart';
-import 'widgets/image_selector.dart';
-import 'widgets/verdict_card.dart';
-import 'widgets/insights_card.dart';
-import 'widgets/history_panel.dart';
-import 'widgets/settings_dialog.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ImpressionismApp());
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint(details.toString());
+  };
+  runApp(const EraApp());
 }
 
-class ImpressionismApp extends StatelessWidget {
-  const ImpressionismApp({super.key});
+class EraApp extends StatelessWidget {
+  const EraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Is It Impressionism?',
+      title: 'Art Era',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-        primaryColor: const Color(0xFF0284C7),
-        colorScheme: const ColorScheme.light(
-          primary: Color(0xFF0284C7),
-          secondary: Color(0xFF0EA5E9),
-          surface: Color(0xFFFFFFFF),
-          background: Color(0xFFF8FAFC),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1D4E89),
+          brightness: Brightness.light,
         ),
         useMaterial3: true,
-        textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          ThemeData.light().textTheme,
-        ),
       ),
-      home: const ImpressionismHomeScreen(),
+      builder: (context, child) {
+        ErrorWidget.builder = (details) => Material(
+              color: const Color(0xFFF7F4EE),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    details.exceptionAsString(),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            );
+        return child ?? const SizedBox.shrink();
+      },
+      home: const EraHome(),
     );
   }
 }
 
-class ImpressionismHomeScreen extends StatefulWidget {
-  const ImpressionismHomeScreen({super.key});
+class EraHome extends StatefulWidget {
+  const EraHome({super.key});
 
   @override
-  State<ImpressionismHomeScreen> createState() =>
-      _ImpressionismHomeScreenState();
+  State<EraHome> createState() => _EraHomeState();
 }
 
-class _ImpressionismHomeScreenState extends State<ImpressionismHomeScreen> {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  bool _isLoading = false;
-  Uint8List? _currentImageBytes;
-  PredictionResult? _currentResult;
-
-  final List<Map<String, dynamic>> _historyItems = [];
+class _EraHomeState extends State<EraHome> {
+  final _picker = ImagePicker();
+  bool _booting = true;
+  bool _busy = false;
+  Uint8List? _image;
+  PredictionResult? _result;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _initClassifier();
+    _boot();
   }
 
-  Future<void> _initClassifier() async {
-    await ClassifierService.initialize();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _processImage(Uint8List bytes,
-      {String? path, String? url}) async {
-    setState(() {
-      _isLoading = true;
-      _currentImageBytes = bytes;
-    });
-
+  Future<void> _boot() async {
     try {
-      final result = await ClassifierService.predictImage(
-        bytes,
-        imageUrl: url,
-        imagePath: path,
+      await ClassifierService.initialize();
+    } catch (e, st) {
+      debugPrint('Model load failed: $e\n$st');
+      _error = e.toString();
+    }
+    if (mounted) setState(() => _booting = false);
+  }
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 88,
       );
-
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
       setState(() {
-        _currentResult = result;
-        _isLoading = false;
-
-        // Save to history
-        _historyItems.insert(0, {
-          'bytes': bytes,
-          'result': result,
-          'timestamp': DateTime.now(),
-        });
+        _busy = true;
+        _image = bytes;
+        _result = null;
+        _error = null;
+      });
+      final result = await ClassifierService.predict(bytes);
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _busy = false;
       });
     } catch (e) {
-      print('Error predicting image: $e');
+      if (!mounted) return;
       setState(() {
-        _isLoading = false;
+        _busy = false;
+        _error = e.toString();
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to classify image: $e'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
     }
   }
 
-  void _resetSelection() {
+  void _reset() {
     setState(() {
-      _currentImageBytes = null;
-      _currentResult = null;
+      _image = null;
+      _result = null;
+      _error = null;
     });
-  }
-
-  void _openSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => SettingsDialog(
-        onSaved: () {
-          setState(() {});
-        },
-      ),
-    );
-  }
-
-  void _openHistory() {
-    _scaffoldKey.currentState?.openEndDrawer();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: _scaffoldKey,
-      endDrawer: HistoryPanel(
-        historyItems: _historyItems,
-        onItemSelect: (item) {
-          setState(() {
-            _currentResult = item['result'] as PredictionResult;
-            _currentImageBytes = item['bytes'] as Uint8List?;
-          });
-          Navigator.of(context).pop();
-        },
-        onClearHistory: () {
-          setState(() {
-            _historyItems.clear();
-          });
-        },
-      ),
+      backgroundColor: const Color(0xFFF7F4EE),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Light Blue Hero Header
-            HeroHeader(
-              onOpenSettings: _openSettings,
-              onOpenHistory: _openHistory,
-              historyCount: _historyItems.length,
-            ),
-
-            // Scrollable Body Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 680),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Light loading indicator overlay
-                        if (_isLoading)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 60),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.04),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              children: [
-                                const SizedBox(
-                                  width: 44,
-                                  height: 44,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 3.5,
-                                    color: Color(0xFF0284C7),
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  'Analyzing Artwork Style...',
-                                  style: GoogleFonts.playfairDisplay(
-                                    color: const Color(0xFF0F172A),
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Executing On-Device Tensor Inference...',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    color: const Color(0xFF64748B),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        else if (_currentResult != null &&
-                            _currentImageBytes != null) ...[
-                          // Result Verdict Card
-                          VerdictCard(
-                            result: _currentResult!,
-                            imageBytes: _currentImageBytes!,
-                            onReset: _resetSelection,
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Insights Card
-                          InsightsCard(
-                            detectedTraits: _currentResult!.analysis.traits,
-                          ),
-                        ] else ...[
-                          // Main Image Selector (Camera / Upload)
-                          ImageSelector(
-                            onImageSelected: _processImage,
-                            isLoading: _isLoading,
-                          ),
-                        ],
-                        const SizedBox(height: 40),
-                      ],
-                    ),
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Art Era',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.6,
+                  color: Color(0xFF1A1510),
                 ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                _booting ? 'Loading on-device model…' : ClassifierService.status,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF6B6258),
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 28),
+              Expanded(
+                child: _booting
+                    ? const Center(child: CircularProgressIndicator())
+                    : _body(),
+              ),
+              if (_image != null) ...[
+                const SizedBox(height: 12),
+                TextButton(onPressed: _reset, child: const Text('Try another')),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _body() {
+    if (_busy) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Looking at the image…'),
           ],
         ),
+      );
+    }
+
+    if (_image != null && _result != null) {
+      return _resultView();
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFE6DED0)),
+            ),
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.museum_outlined, size: 56, color: Color(0xFF1D4E89)),
+                SizedBox(height: 16),
+                Text(
+                  'What era is this?',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1510),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    'Choose a photo of a painting. The guess stays on this device.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF6B6258), height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.redAccent),
+          ),
+        ],
+        const SizedBox(height: 20),
+        if (!kIsWeb) ...[
+          FilledButton.icon(
+            onPressed:
+                ClassifierService.isReady ? () => _pick(ImageSource.camera) : null,
+            icon: const Icon(Icons.photo_camera_outlined),
+            label: const Text('Take photo'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        FilledButton.icon(
+          onPressed:
+              ClassifierService.isReady ? () => _pick(ImageSource.gallery) : null,
+          icon: const Icon(Icons.photo_outlined),
+          label: const Text('Choose photo'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _resultView() {
+    final result = _result!;
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: AspectRatio(
+              aspectRatio: 4 / 3,
+              child: Image.memory(_image!, fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            result.era,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            result.years,
+            style: const TextStyle(fontSize: 16, color: Color(0xFF6B6258)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${result.confidencePercent}% sure',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 20),
+          ...result.topEras.skip(1).map(
+            (alt) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Also possible: ${alt.era} (${alt.percentage.toStringAsFixed(0)}%)',
+                style: const TextStyle(color: Color(0xFF6B6258)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
