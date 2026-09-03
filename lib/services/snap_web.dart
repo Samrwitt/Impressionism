@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+
 import 'dart:async';
 import 'dart:html' as html;
 import 'dart:typed_data';
@@ -63,8 +65,8 @@ class _LiveCameraDialogState extends State<_LiveCameraDialog> {
       final stream = await devices.getUserMedia({
         'video': {
           'facingMode': {'ideal': 'environment'},
-          'width': {'ideal': 1280},
-          'height': {'ideal': 960},
+          'width': {'ideal': 1920},
+          'height': {'ideal': 1440},
         },
         'audio': false,
       });
@@ -80,9 +82,12 @@ class _LiveCameraDialogState extends State<_LiveCameraDialog> {
         _stream = stream;
         _ready = true;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _error = 'Could not open the camera. Allow access, then try again.');
+      setState(
+        () => _error =
+            'Could not open the camera. Allow access, then try again.',
+      );
     }
   }
 
@@ -93,18 +98,37 @@ class _LiveCameraDialogState extends State<_LiveCameraDialog> {
   Future<void> _snap() async {
     final video = _video;
     if (video == null || video.videoWidth == 0) return;
-    final canvas = html.CanvasElement(
-      width: video.videoWidth,
-      height: video.videoHeight,
-    );
-    canvas.context2D.drawImageScaled(
+
+    const frameAspect = 3 / 4;
+    final vw = video.videoWidth.toDouble();
+    final vh = video.videoHeight.toDouble();
+    late double sx, sy, sw, sh;
+    if (vw / vh > frameAspect) {
+      sh = vh;
+      sw = vh * frameAspect;
+      sx = (vw - sw) / 2;
+      sy = 0;
+    } else {
+      sw = vw;
+      sh = vw / frameAspect;
+      sx = 0;
+      sy = (vh - sh) / 2;
+    }
+
+    final canvas = html.CanvasElement(width: sw.round(), height: sh.round());
+    canvas.context2D.imageSmoothingEnabled = true;
+    canvas.context2D.drawImageScaledFromSource(
       video,
+      sx,
+      sy,
+      sw,
+      sh,
       0,
       0,
-      video.videoWidth,
-      video.videoHeight,
+      sw,
+      sh,
     );
-    final blob = await canvas.toBlob('image/jpeg', 0.9);
+    final blob = await canvas.toBlob('image/jpeg', 0.95);
     final reader = html.FileReader();
     final done = reader.onLoad.first;
     reader.readAsArrayBuffer(blob);

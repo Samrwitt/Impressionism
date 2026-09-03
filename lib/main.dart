@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'models/prediction_result.dart';
 import 'services/classifier_service.dart';
+import 'services/image_polish.dart';
+import 'services/snap.dart';
 
 const _ink = Color(0xFF1C1612);
 const _muted = Color(0xFF7A7066);
@@ -85,26 +87,19 @@ class _EraHomeState extends State<EraHome> {
     if (mounted) setState(() => _booting = false);
   }
 
-  Future<void> _pick(ImageSource source) async {
+  Future<void> _useBytes(Uint8List bytes) async {
+    setState(() {
+      _busy = true;
+      _image = bytes;
+      _result = null;
+      _error = null;
+    });
     try {
-      final file = await _picker.pickImage(
-        source: source,
-        maxWidth: 1280,
-        maxHeight: 1280,
-        imageQuality: 88,
-      );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (!mounted) return;
-      setState(() {
-        _busy = true;
-        _image = bytes;
-        _result = null;
-        _error = null;
-      });
       final result = await ClassifierService.predict(bytes);
+      final shown = polishForDisplay(bytes);
       if (!mounted) return;
       setState(() {
+        _image = shown;
         _result = result;
         _busy = false;
       });
@@ -114,6 +109,37 @@ class _EraHomeState extends State<EraHome> {
         _busy = false;
         _error = e.toString();
       });
+    }
+  }
+
+  Future<void> _pick(ImageSource source) async {
+    try {
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 95,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+      if (file == null) return;
+      await _useBytes(await file.readAsBytes());
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _snap() async {
+    try {
+      if (kIsWeb) {
+        final live = await captureFromLiveCamera(context);
+        if (live != null) await _useBytes(live);
+        return;
+      }
+      await _pick(ImageSource.camera);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
     }
   }
 
@@ -184,9 +210,7 @@ class _EraHomeState extends State<EraHome> {
                                       ready: ClassifierService.isReady,
                                       onChoose: () =>
                                           _pick(ImageSource.gallery),
-                                      onCamera: kIsWeb
-                                          ? null
-                                          : () => _pick(ImageSource.camera),
+                                      onCamera: _snap,
                                     ),
                     ),
                   ),
@@ -243,7 +267,7 @@ class _EmptyView extends StatelessWidget {
 
   final bool ready;
   final VoidCallback onChoose;
-  final VoidCallback? onCamera;
+  final VoidCallback onCamera;
   final String? error;
 
   @override
@@ -259,7 +283,7 @@ class _EmptyView extends StatelessWidget {
               side: const BorderSide(color: _line, width: 1),
             ),
             child: InkWell(
-              onTap: ready ? onChoose : null,
+              onTap: ready ? onCamera : null,
               borderRadius: BorderRadius.circular(4),
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -285,7 +309,7 @@ class _EmptyView extends StatelessWidget {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Place a painting in the frame.\nNothing leaves this device.',
+                            'Snap a painting, or upload one.\nNothing leaves this device.',
                             textAlign: TextAlign.center,
                             style: GoogleFonts.sourceSans3(
                               fontSize: 15,
@@ -317,8 +341,10 @@ class _EmptyView extends StatelessWidget {
         SizedBox(
           height: 52,
           width: double.infinity,
-          child: FilledButton(
-            onPressed: ready ? onChoose : null,
+          child: FilledButton.icon(
+            onPressed: ready ? onCamera : null,
+            icon: const Icon(Icons.photo_camera_outlined, size: 20),
+            label: const Text('Snap a photo'),
             style: FilledButton.styleFrom(
               backgroundColor: _ink,
               foregroundColor: _paper,
@@ -332,23 +358,29 @@ class _EmptyView extends StatelessWidget {
                 letterSpacing: 0.4,
               ),
             ),
-            child: const Text('Choose a painting'),
           ),
         ),
-        if (onCamera != null) ...[
-          const SizedBox(height: 4),
-          TextButton(
-            onPressed: ready ? onCamera : null,
-            style: TextButton.styleFrom(
-              foregroundColor: _muted,
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 48,
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: ready ? onChoose : null,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _ink,
+              side: const BorderSide(color: _line),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(2),
+              ),
               textStyle: GoogleFonts.sourceSans3(
-                fontSize: 14,
-                letterSpacing: 0.2,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
               ),
             ),
-            child: const Text('Or take a photo'),
+            child: const Text('Upload a photo'),
           ),
-        ],
+        ),
       ],
     );
   }
@@ -374,22 +406,7 @@ class _ResultView extends StatelessWidget {
           child: Column(
             children: [
               Expanded(
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: _card,
-                    border: Border.all(color: const Color(0xFFC4B8A4)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 24,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Image.memory(image, fit: BoxFit.contain),
-                ),
+                child: _PaintingFrame(image: image),
               ),
               const SizedBox(height: 28),
               Text(
@@ -473,6 +490,50 @@ class _ResultView extends StatelessWidget {
           child: const Text('ANOTHER'),
         ),
       ],
+    );
+  }
+}
+
+class _PaintingFrame extends StatelessWidget {
+  const _PaintingFrame({required this.image});
+
+  final Uint8List image;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFF3D2C22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(5),
+      child: ColoredBox(
+        color: const Color(0xFFF4EFE4),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: ClipRect(
+            child: ColoredBox(
+              color: const Color(0xFF111111),
+              child: Image.memory(
+                image,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                filterQuality: FilterQuality.high,
+                gaplessPlayback: true,
+                alignment: Alignment.center,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
