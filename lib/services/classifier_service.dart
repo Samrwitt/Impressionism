@@ -4,59 +4,157 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img_pkg;
 import '../models/prediction_result.dart';
 
-class _EraMlp {
-  _EraMlp(this.eras, this.years, this.mean, this.scale, this.w1, this.b1, this.w2, this.b2);
+class _EraCnn {
+  _EraCnn({
+    required this.size,
+    required this.eras,
+    required this.years,
+    required this.k1,
+    required this.b1,
+    required this.k2,
+    required this.b2,
+    required this.w3,
+    required this.b3,
+    required this.w4,
+    required this.b4,
+  });
 
+  final int size;
   final List<String> eras;
   final List<String> years;
-  final List<double> mean;
-  final List<double> scale;
-  final List<List<double>> w1;
+  final List k1;
   final List<double> b1;
-  final List<List<double>> w2;
+  final List k2;
   final List<double> b2;
+  final List<List<double>> w3;
+  final List<double> b3;
+  final List<List<double>> w4;
+  final List<double> b4;
 
-  factory _EraMlp.fromJson(Map<String, dynamic> json) {
+  factory _EraCnn.fromJson(Map<String, dynamic> json) {
     final labels = json['labels'] as List;
-    return _EraMlp(
-      labels.map((e) => (e as Map)['era'] as String).toList(),
-      labels.map((e) => (e as Map)['years'] as String).toList(),
-      (json['mean'] as List).map((e) => (e as num).toDouble()).toList(),
-      (json['scale'] as List).map((e) => (e as num).toDouble()).toList(),
-      (json['w1'] as List)
-          .map((row) => (row as List).map((e) => (e as num).toDouble()).toList())
-          .toList(),
-      (json['b1'] as List).map((e) => (e as num).toDouble()).toList(),
-      (json['w2'] as List)
-          .map((row) => (row as List).map((e) => (e as num).toDouble()).toList())
-          .toList(),
-      (json['b2'] as List).map((e) => (e as num).toDouble()).toList(),
+    return _EraCnn(
+      size: json['size'] as int,
+      eras: labels.map((e) => (e as Map)['era'] as String).toList(),
+      years: labels.map((e) => (e as Map)['years'] as String).toList(),
+      k1: json['k1'] as List,
+      b1: _vec(json['b1']),
+      k2: json['k2'] as List,
+      b2: _vec(json['b2']),
+      w3: _mat(json['w3']),
+      b3: _vec(json['b3']),
+      w4: _mat(json['w4']),
+      b4: _vec(json['b4']),
     );
   }
 
-  List<double> infer(List<double> features) {
-    final n = features.length;
-    final x = List<double>.generate(
-      n,
-      (i) => (features[i] - mean[i]) / (scale[i] == 0 ? 1 : scale[i]),
+  static List<double> _vec(dynamic raw) =>
+      (raw as List).map((e) => (e as num).toDouble()).toList();
+
+  static List<List<double>> _mat(dynamic raw) => (raw as List)
+      .map((row) => (row as List).map((e) => (e as num).toDouble()).toList())
+      .toList();
+
+  List<double> infer(List<List<List<double>>> image) {
+    final c1 = _convRelu(image, k1, b1);
+    final p1 = _pool(c1);
+    final c2 = _convRelu(p1, k2, b2);
+    final p2 = _pool(c2);
+    final flat = <double>[];
+    for (final row in p2) {
+      for (final px in row) {
+        flat.addAll(px);
+      }
+    }
+    final h = _denseRelu(flat, w3, b3);
+    return _softmax(_dense(h, w4, b4));
+  }
+
+  static List<List<List<double>>> _convRelu(
+    List<List<List<double>>> input,
+    List kernel,
+    List<double> bias,
+  ) {
+    final h = input.length;
+    final w = input[0].length;
+    final cin = input[0][0].length;
+    final cout = bias.length;
+    final out = List.generate(
+      h,
+      (_) => List.generate(w, (_) => List<double>.filled(cout, 0)),
     );
-    final hidden = List<double>.filled(b1.length, 0);
-    for (var j = 0; j < b1.length; j++) {
-      var s = b1[j];
-      for (var i = 0; i < n; i++) {
-        s += x[i] * w1[i][j];
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        for (var oc = 0; oc < cout; oc++) {
+          var s = bias[oc];
+          for (var ky = 0; ky < 3; ky++) {
+            final iy = y + ky - 1;
+            if (iy < 0 || iy >= h) continue;
+            for (var kx = 0; kx < 3; kx++) {
+              final ix = x + kx - 1;
+              if (ix < 0 || ix >= w) continue;
+              final krow = (kernel[ky] as List)[kx] as List;
+              for (var ic = 0; ic < cin; ic++) {
+                s += input[iy][ix][ic] *
+                    ((krow[ic] as List)[oc] as num).toDouble();
+              }
+            }
+          }
+          out[y][x][oc] = s > 0 ? s : 0;
+        }
       }
-      hidden[j] = s > 0 ? s : 0;
     }
-    final logits = List<double>.filled(b2.length, 0);
-    for (var k = 0; k < b2.length; k++) {
-      var s = b2[k];
-      for (var j = 0; j < hidden.length; j++) {
-        s += hidden[j] * w2[j][k];
+    return out;
+  }
+
+  static List<List<List<double>>> _pool(List<List<List<double>>> input) {
+    final h = input.length ~/ 2;
+    final w = input[0].length ~/ 2;
+    final c = input[0][0].length;
+    final out = List.generate(
+      h,
+      (_) => List.generate(w, (_) => List<double>.filled(c, 0)),
+    );
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        for (var ic = 0; ic < c; ic++) {
+          var m = input[y * 2][x * 2][ic];
+          m = math.max(m, input[y * 2][x * 2 + 1][ic]);
+          m = math.max(m, input[y * 2 + 1][x * 2][ic]);
+          m = math.max(m, input[y * 2 + 1][x * 2 + 1][ic]);
+          out[y][x][ic] = m;
+        }
       }
-      logits[k] = s;
     }
-    return _softmax(logits);
+    return out;
+  }
+
+  static List<double> _denseRelu(
+    List<double> x,
+    List<List<double>> w,
+    List<double> b,
+  ) {
+    final y = _dense(x, w, b);
+    for (var i = 0; i < y.length; i++) {
+      if (y[i] < 0) y[i] = 0;
+    }
+    return y;
+  }
+
+  static List<double> _dense(
+    List<double> x,
+    List<List<double>> w,
+    List<double> b,
+  ) {
+    final out = List<double>.from(b);
+    for (var i = 0; i < x.length; i++) {
+      final row = w[i];
+      final v = x[i];
+      for (var j = 0; j < out.length; j++) {
+        out[j] += v * row[j];
+      }
+    }
+    return out;
   }
 
   static List<double> _softmax(List<double> logits) {
@@ -68,18 +166,15 @@ class _EraMlp {
 }
 
 class ClassifierService {
-  static _EraMlp? _model;
+  static _EraCnn? _model;
   static bool _ready = false;
   static String status = 'Loading model…';
 
   static bool get isReady => _ready;
 
-  static const _size = 160;
-  static const _bins = 8;
-
   static Future<void> initialize() async {
-    final raw = await rootBundle.loadString('assets/models/era_mlp.json');
-    _model = _EraMlp.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    final raw = await rootBundle.loadString('assets/models/era_cnn.json');
+    _model = _EraCnn.fromJson(jsonDecode(raw) as Map<String, dynamic>);
     _ready = true;
     status = 'On-device · ${_model!.eras.length} eras';
   }
@@ -93,14 +188,20 @@ class ClassifierService {
     if (decoded == null) {
       throw Exception('Could not read that image.');
     }
-    final resized = img_pkg.copyResize(
+    final sized = img_pkg.copyResize(
       decoded,
-      width: _size,
-      height: _size,
-      interpolation: img_pkg.Interpolation.linear,
+      width: model.size,
+      height: model.size,
+      interpolation: img_pkg.Interpolation.cubic,
     );
-    final features = _extractFeatures(resized);
-    final probs = model.infer(features);
+    final pixels = List.generate(
+      model.size,
+      (y) => List.generate(model.size, (x) {
+        final p = sized.getPixel(x, y);
+        return [p.r / 255.0, p.g / 255.0, p.b / 255.0];
+      }),
+    );
+    final probs = model.infer(pixels);
     final ranked = <EraScore>[];
     for (var i = 0; i < probs.length; i++) {
       ranked.add(
@@ -120,97 +221,5 @@ class ClassifierService {
       confidence: top.score,
       topEras: ranked.take(3).toList(),
     );
-  }
-
-  static List<double> _histogram(List<double> channel) {
-    final hist = List<double>.filled(_bins, 0);
-    final width = 256.0 / _bins;
-    for (final v in channel) {
-      var bin = (v / width).floor();
-      if (bin >= _bins) bin = _bins - 1;
-      if (bin < 0) bin = 0;
-      hist[bin] += 1;
-    }
-    final density = channel.isEmpty ? 1.0 : channel.length.toDouble();
-    // Match numpy density=True: hist / (n * bin_width)
-    for (var i = 0; i < _bins; i++) {
-      hist[i] = hist[i] / (density * width);
-    }
-    return hist;
-  }
-
-  static List<double> _extractFeatures(img_pkg.Image image) {
-    final n = image.width * image.height;
-    final r = List<double>.filled(n, 0);
-    final g = List<double>.filled(n, 0);
-    final b = List<double>.filled(n, 0);
-    final lum = List<double>.filled(n, 0);
-    var i = 0;
-    for (var y = 0; y < image.height; y++) {
-      for (var x = 0; x < image.width; x++) {
-        final p = image.getPixel(x, y);
-        r[i] = p.r.toDouble();
-        g[i] = p.g.toDouble();
-        b[i] = p.b.toDouble();
-        lum[i] = 0.299 * r[i] + 0.587 * g[i] + 0.114 * b[i];
-        i++;
-      }
-    }
-    var satSum = 0.0;
-    var satSq = 0.0;
-    var warmSum = 0.0;
-    for (var k = 0; k < n; k++) {
-      final mx = math.max(r[k], math.max(g[k], b[k]));
-      final mn = math.min(r[k], math.min(g[k], b[k]));
-      final sat = mx > 1e-6 ? (mx - mn) / mx : 0.0;
-      satSum += sat;
-      satSq += sat * sat;
-      warmSum += math.max(0.0, r[k] - b[k]);
-    }
-    final satMean = satSum / n;
-    final satStd = math.sqrt(math.max(0, satSq / n - satMean * satMean));
-    final lumMean = lum.reduce((a, b) => a + b) / n;
-    var lumSq = 0.0;
-    for (final v in lum) {
-      lumSq += v * v;
-    }
-    final lumStd = math.sqrt(math.max(0, lumSq / n - lumMean * lumMean));
-
-    var gx = 0.0;
-    var gy = 0.0;
-    var gxCount = 0;
-    var gyCount = 0;
-    for (var y = 0; y < image.height; y++) {
-      for (var x = 0; x < image.width - 1; x++) {
-        gx += (lum[y * image.width + x + 1] - lum[y * image.width + x]).abs();
-        gxCount++;
-      }
-    }
-    for (var y = 0; y < image.height - 1; y++) {
-      for (var x = 0; x < image.width; x++) {
-        gy += (lum[(y + 1) * image.width + x] - lum[y * image.width + x]).abs();
-        gyCount++;
-      }
-    }
-
-    final rMean = r.reduce((a, b) => a + b) / n;
-    final gMean = g.reduce((a, b) => a + b) / n;
-    final bMean = b.reduce((a, b) => a + b) / n;
-
-    return [
-      ..._histogram(r),
-      ..._histogram(g),
-      ..._histogram(b),
-      ..._histogram(lum),
-      lumMean / 255.0,
-      lumStd / 255.0,
-      satMean,
-      satStd,
-      gx / gxCount / 255.0,
-      gy / gyCount / 255.0,
-      warmSum / n / 255.0,
-      (rMean - gMean) / 255.0,
-      (gMean - bMean) / 255.0,
-    ];
   }
 }

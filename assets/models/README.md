@@ -1,10 +1,10 @@
 # On-device art era model
 
-A tiny MLP (`era_mlp.json`) runs entirely on the phone. It maps a photo to:
+Tiny conv net (`era_cnn.json`) classifies:
 
 Renaissance, Baroque, Romanticism, Realism, Impressionism, Post-Impressionism, Modern, Contemporary.
 
-Rebuild weights:
+Rebuild:
 
 ```
 .venv/bin/python tools/train_era_model.py

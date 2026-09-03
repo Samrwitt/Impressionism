@@ -1,5 +1,5 @@
 name: impressionism_app
-description: On-device art era classifier.
+description: Art Era — guess a painting's era on your device.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -18,9 +18,28 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/app_icon.png
+  adaptive_icon_background: "#F4E6D4"
+  adaptive_icon_foreground: assets/icon/app_icon.png
+  web:
+    generate: true
+    image_path: assets/icon/app_icon.png
+    background_color: "#F4E6D4"
+    theme_color: "#6E2F2A"
+  windows:
+    generate: true
+    image_path: assets/icon/app_icon.png
+  macos:
+    generate: true
+    image_path: assets/icon/app_icon.png
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/models/era_mlp.json
+    - assets/models/era_cnn.json
     - assets/models/labels.txt

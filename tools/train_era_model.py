@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
-"""Train a tiny MLP art-era classifier and export weights for on-device Dart inference."""
+"""Train a tiny conv net for art eras and export JSON weights for Dart."""
 
 from __future__ import annotations
 
 import io
 import json
+import os
 import urllib.parse
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+
 import numpy as np
 from PIL import Image
-from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
-IMG_SIZE = 160
-PER_ERA = 24
+CACHE = ROOT / "tools" / "data" / "era_cache"
+IMG_SIZE = 48
+PER_ERA = 72
 SEED = 42
-BINS = 8
 
 ERAS = [
     "Renaissance",
@@ -164,48 +168,14 @@ def commons_url(filename: str) -> str:
     )
 
 
-def histogram(channel: np.ndarray) -> list[float]:
-    hist, _ = np.histogram(channel, bins=BINS, range=(0.0, 255.0), density=True)
-    return hist.astype(np.float64).tolist()
-
-
-def extract_features(rgb: np.ndarray) -> list[float]:
-    r = rgb[:, :, 0].astype(np.float64)
-    g = rgb[:, :, 1].astype(np.float64)
-    b = rgb[:, :, 2].astype(np.float64)
-    lum = 0.299 * r + 0.587 * g + 0.114 * b
-    mx = np.maximum(np.maximum(r, g), b)
-    mn = np.minimum(np.minimum(r, g), b)
-    sat = np.where(mx > 1e-6, (mx - mn) / mx, 0.0)
-    gx = np.abs(lum[:, 1:] - lum[:, :-1]).mean()
-    gy = np.abs(lum[1:, :] - lum[:-1, :]).mean()
-    warm = np.clip(r - b, 0.0, 255.0).mean() / 255.0
-    feats = []
-    feats.extend(histogram(r))
-    feats.extend(histogram(g))
-    feats.extend(histogram(b))
-    feats.extend(histogram(lum))
-    feats.extend(
-        [
-            lum.mean() / 255.0,
-            lum.std() / 255.0,
-            sat.mean(),
-            sat.std(),
-            gx / 255.0,
-            gy / 255.0,
-            warm,
-            (r.mean() - g.mean()) / 255.0,
-            (g.mean() - b.mean()) / 255.0,
-        ]
-    )
-    return feats
+def to_array(img: Image.Image) -> np.ndarray:
+    rgb = img.convert("RGB").resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
+    return np.asarray(rgb, dtype=np.uint8)
 
 
 def decode(raw: bytes) -> np.ndarray | None:
     try:
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
-        img = img.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
-        return np.asarray(img, dtype=np.uint8)
+        return to_array(Image.open(io.BytesIO(raw)))
     except Exception:
         return None
 
@@ -220,13 +190,38 @@ def http_get(url: str) -> bytes | None:
         return None
 
 
-def load_wikiart() -> dict[str, list[np.ndarray]]:
+def save_cache(era: str, idx: int, arr: np.ndarray) -> None:
+    folder = CACHE / era
+    folder.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(arr).save(folder / f"{idx:04d}.jpg", quality=90)
+
+
+def load_cache() -> dict[str, list[np.ndarray]]:
     buckets: dict[str, list[np.ndarray]] = defaultdict(list)
+    if not CACHE.exists():
+        return buckets
+    for era in ERAS:
+        folder = CACHE / era
+        if not folder.exists():
+            continue
+        for path in sorted(folder.glob("*.jpg")):
+            try:
+                buckets[era].append(to_array(Image.open(path)))
+            except Exception:
+                continue
+    return buckets
+
+
+def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndarray]]:
+    if os.environ.get("SKIP_WIKIART") == "1":
+        print("SKIP_WIKIART=1 — using Commons + cache only")
+        return buckets
     try:
         from datasets import load_dataset
     except ImportError:
+        print("datasets not installed; skipping WikiArt stream")
         return buckets
-    print("Streaming WikiArt samples...")
+    print("Streaming WikiArt…", flush=True)
     try:
         ds = load_dataset("huggan/wikiart", split="train", streaming=True)
         names = ds.features["style"].names
@@ -236,7 +231,7 @@ def load_wikiart() -> dict[str, list[np.ndarray]]:
     seen = 0
     for row in ds:
         seen += 1
-        if all(len(buckets[e]) >= PER_ERA for e in ERAS) or seen > 6000:
+        if all(len(buckets[e]) >= PER_ERA for e in ERAS) or seen > 12000:
             break
         try:
             era = STYLE_TO_ERA.get(names[int(row["style"])])
@@ -245,15 +240,18 @@ def load_wikiart() -> dict[str, list[np.ndarray]]:
         if era is None or len(buckets[era]) >= PER_ERA:
             continue
         try:
-            rgb = row["image"].convert("RGB").resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
-            buckets[era].append(np.asarray(rgb, dtype=np.uint8))
+            arr = to_array(row["image"])
         except Exception:
             continue
+        buckets[era].append(arr)
+        save_cache(era, len(buckets[era]), arr)
+        if seen % 400 == 0:
+            print("  ", {k: len(v) for k, v in buckets.items()})
     return buckets
 
 
 def load_wikimedia(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndarray]]:
-    print("Downloading public-domain examples...")
+    print("Downloading Commons examples…")
     for era, names in FILES.items():
         for name in names:
             if len(buckets[era]) >= PER_ERA:
@@ -262,28 +260,81 @@ def load_wikimedia(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.nd
             if not raw:
                 continue
             arr = decode(raw)
-            if arr is not None:
-                buckets[era].append(arr)
-                print(f"  {era}: {len(buckets[era])} ({name})")
+            if arr is None:
+                continue
+            buckets[era].append(arr)
+            save_cache(era, len(buckets[era]), arr)
+            print(f"  {era}: {len(buckets[era])} ({name})")
     return buckets
 
 
 def augment(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    out = img.astype(np.float64)
+    out = img.astype(np.float32)
     if rng.random() < 0.5:
         out = np.fliplr(out)
-    out = np.clip(out * rng.uniform(0.82, 1.18) + rng.uniform(-12, 12), 0, 255)
+    if rng.random() < 0.3:
+        out = np.rot90(out, int(rng.integers(1, 4)))
+    out = np.clip(out * rng.uniform(0.8, 1.2) + rng.uniform(-18, 18), 0, 255)
     if rng.random() < 0.35:
-        out = np.rot90(out, int(rng.integers(0, 4)))
+        shift = int(rng.integers(-6, 7))
+        out = np.roll(out, shift, axis=1)
     return out.astype(np.uint8)
 
 
+def build_model() -> keras.Model:
+    inputs = keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3), name="image")
+    x = layers.Conv2D(12, 3, padding="same", activation="relu", name="c1")(inputs)
+    x = layers.MaxPool2D(2, name="p1")(x)
+    x = layers.Conv2D(24, 3, padding="same", activation="relu", name="c2")(x)
+    x = layers.MaxPool2D(2, name="p2")(x)
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(32, activation="relu", name="d1")(x)
+    outputs = layers.Dense(len(ERAS), name="logits")(x)
+    return keras.Model(inputs, outputs, name="era_cnn")
+
+
+def export_json(model: keras.Model) -> None:
+    c1 = model.get_layer("c1")
+    c2 = model.get_layer("c2")
+    d1 = model.get_layer("d1")
+    logits = model.get_layer("logits")
+    k1, b1 = c1.get_weights()
+    k2, b2 = c2.get_weights()
+    w3, b3 = d1.get_weights()
+    w4, b4 = logits.get_weights()
+    payload = {
+        "type": "cnn",
+        "size": IMG_SIZE,
+        "labels": [{"era": era, "years": ERA_YEARS[era]} for era in ERAS],
+        "k1": k1.tolist(),
+        "b1": b1.tolist(),
+        "k2": k2.tolist(),
+        "b2": b2.tolist(),
+        "w3": w3.tolist(),
+        "b3": b3.tolist(),
+        "w4": w4.tolist(),
+        "b4": b4.tolist(),
+    }
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUT_DIR / "era_cnn.json"
+    out.write_text(json.dumps(payload), encoding="utf-8")
+    (OUT_DIR / "labels.txt").write_text(
+        "\n".join(f"{era}|{ERA_YEARS[era]}" for era in ERAS) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)")
+
+
 def main() -> None:
+    tf.random.set_seed(SEED)
     rng = np.random.default_rng(SEED)
-    buckets = load_wikiart()
+    buckets = load_cache()
+    print("cache", {k: len(v) for k, v in buckets.items()})
+    buckets = load_wikiart(buckets)
     buckets = load_wikimedia(buckets)
 
-    xs: list[list[float]] = []
+    xs: list[np.ndarray] = []
     ys: list[int] = []
     for idx, era in enumerate(ERAS):
         samples = buckets[era]
@@ -291,45 +342,36 @@ def main() -> None:
             raise RuntimeError(f"No images for {era}")
         while len(samples) < PER_ERA:
             samples.append(augment(samples[int(rng.integers(0, len(samples)))], rng))
-        print(f"{era}: {len(samples[:PER_ERA])} samples")
-        for img in samples[:PER_ERA]:
-            xs.append(extract_features(img))
+        print(f"{era}: {len(samples[:PER_ERA])}")
+        for im in samples[:PER_ERA]:
+            xs.append(im.astype(np.float32) / 255.0)
             ys.append(idx)
 
-    x = np.array(xs, dtype=np.float64)
+    x = np.stack(xs, axis=0)
     y = np.array(ys, dtype=np.int32)
-    scaler = StandardScaler()
-    x_s = scaler.fit_transform(x)
+    perm = rng.permutation(len(x))
+    x, y = x[perm], y[perm]
+    split = max(1, int(len(x) * 0.18))
+    x_val, y_val = x[:split], y[:split]
+    x_train, y_train = x[split:], y[split:]
 
-    clf = MLPClassifier(
-        hidden_layer_sizes=(32,),
-        activation="relu",
-        solver="adam",
-        max_iter=600,
-        random_state=SEED,
-        alpha=0.02,
+    model = build_model()
+    model.compile(
+        optimizer=keras.optimizers.Adam(1.2e-3),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=["accuracy"],
     )
-    clf.fit(x_s, y)
-    acc = float((clf.predict(x_s) == y).mean())
-    print(f"train accuracy: {acc:.3f}")
-
-    payload = {
-        "labels": [{"era": era, "years": ERA_YEARS[era]} for era in ERAS],
-        "mean": scaler.mean_.tolist(),
-        "scale": scaler.scale_.tolist(),
-        "w1": clf.coefs_[0].tolist(),
-        "b1": clf.intercepts_[0].tolist(),
-        "w2": clf.coefs_[1].tolist(),
-        "b2": clf.intercepts_[1].tolist(),
-    }
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / "era_mlp.json"
-    out.write_text(json.dumps(payload), encoding="utf-8")
-    (OUT_DIR / "labels.txt").write_text(
-        "\n".join(f"{era}|{ERA_YEARS[era]}" for era in ERAS) + "\n",
-        encoding="utf-8",
+    model.fit(
+        x_train,
+        y_train,
+        validation_data=(x_val, y_val),
+        epochs=18,
+        batch_size=32,
+        verbose=2,
     )
-    print(f"wrote {out} ({out.stat().st_size} bytes)")
+    val_loss, val_acc = model.evaluate(x_val, y_val, verbose=0)
+    print(f"held-out accuracy: {val_acc:.3f}")
+    export_json(model)
 
 
 if __name__ == "__main__":
