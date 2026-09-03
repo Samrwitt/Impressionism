@@ -4,6 +4,6 @@ import 'package:impressionism_app/main.dart';
 void main() {
   testWidgets('App shows simple era title', (WidgetTester tester) async {
     await tester.pumpWidget(const EraApp());
-    expect(find.text('Art Era'), findsOneWidget);
+    expect(find.text('ART ERA'), findsOneWidget);
   });
 }
