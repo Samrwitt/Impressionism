@@ -24,12 +24,33 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "era_cache"
 IMG_SIZE = 160
-PER_ERA = 180
-AUG_PER_UNIQUE = 4
+PER_ERA = 250
+AUG_PER_UNIQUE = 3
 SEED = 42
-WIKIART_MAX_SCAN = 18000
-WIKIART_TIMEOUT_SEC = 600
+WIKIART_MAX_SCAN = 40000
+WIKIART_TIMEOUT_SEC = 2400
 COMMONS_PER_CATEGORY = 40
+
+
+def load_dotenv(path: Path = ROOT / ".env") -> None:
+    """Load KEY=VALUE pairs from .env without printing secrets."""
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_dotenv()
+# Hugging Face Hub reads either name.
+if os.environ.get("HF_TOKEN") and not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
 
 ERAS = [
     "Renaissance",
@@ -330,47 +351,172 @@ def load_cache() -> dict[str, list[np.ndarray]]:
     return buckets
 
 
+def _style_names_from_dataset_card() -> list[str]:
+    """Official huggan/wikiart ClassLabel order (from dataset_infos.json)."""
+    return [
+        "Abstract_Expressionism",
+        "Action_painting",
+        "Analytical_Cubism",
+        "Art_Nouveau",
+        "Baroque",
+        "Color_Field_Painting",
+        "Contemporary_Realism",
+        "Cubism",
+        "Early_Renaissance",
+        "Expressionism",
+        "Fauvism",
+        "High_Renaissance",
+        "Impressionism",
+        "Mannerism_Late_Renaissance",
+        "Minimalism",
+        "Naive_Art_Primitivism",
+        "New_Realism",
+        "Northern_Renaissance",
+        "Pointillism",
+        "Pop_Art",
+        "Post_Impressionism",
+        "Realism",
+        "Rococo",
+        "Romanticism",
+        "Symbolism",
+        "Synthetic_Cubism",
+        "Ukiyo_e",
+    ]
+
+
+def _image_from_parquet_cell(cell) -> np.ndarray | None:
+    try:
+        if isinstance(cell, dict):
+            raw = cell.get("bytes")
+            if raw:
+                return decode(raw if isinstance(raw, (bytes, bytearray)) else bytes(raw))
+            path = cell.get("path")
+            if path and Path(path).exists():
+                return to_array(Image.open(path))
+            return None
+        if hasattr(cell, "convert"):
+            return to_array(cell)
+        if isinstance(cell, (bytes, bytearray)):
+            return decode(bytes(cell))
+    except Exception:
+        return None
+    return None
+
+
 def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndarray]]:
-    if os.environ.get("SKIP_WIKIART", "1") == "1":
+    # Default: use WikiArt when an HF token is present.
+    default_skip = "0" if os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") else "1"
+    if os.environ.get("SKIP_WIKIART", default_skip) == "1":
         print("SKIP_WIKIART=1", flush=True)
         return buckets
+
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    max_shards = int(os.environ.get("WIKIART_MAX_SHARDS", "12"))
+    local_dir = os.environ.get("WIKIART_LOCAL_DIR", "").strip()
+    print(
+        f"Loading WikiArt parquet… (token={'yes' if token else 'no'}, "
+        f"target={PER_ERA}/era, max_shards={max_shards}"
+        + (f", local={local_dir}" if local_dir else "")
+        + ")",
+        flush=True,
+    )
+
     try:
-        from datasets import load_dataset
-    except ImportError:
-        print("datasets missing", flush=True)
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        print(f"WikiArt deps missing ({exc})", flush=True)
         return buckets
 
-    print("Streaming WikiArt…", flush=True)
-    try:
-        ds = load_dataset("huggan/wikiart", split="train", streaming=True)
-        names = ds.features["style"].names
-    except Exception as exc:
-        print(f"WikiArt unavailable ({exc})", flush=True)
-        return buckets
+    hf_hub_download = None
+    if not local_dir:
+        try:
+            from huggingface_hub import hf_hub_download as _dl
 
+            hf_hub_download = _dl
+        except ImportError as exc:
+            print(f"huggingface_hub missing ({exc})", flush=True)
+            return buckets
+
+    names = _style_names_from_dataset_card()
     started = time.time()
-    seen = 0
-    for row in ds:
-        seen += 1
+    kept = 0
+
+    for shard_i in range(max_shards):
         if all(len(buckets[e]) >= PER_ERA for e in ERAS):
+            print("WikiArt targets filled", flush=True)
             break
-        if seen > WIKIART_MAX_SCAN or (time.time() - started) > WIKIART_TIMEOUT_SEC:
-            print(f"WikiArt stop after scan={seen}", flush=True)
+        if (time.time() - started) > WIKIART_TIMEOUT_SEC:
+            print("WikiArt timeout", flush=True)
             break
+
+        fname = f"train-{shard_i:05d}-of-00072.parquet"
+        if local_dir:
+            path = str(Path(local_dir) / fname)
+            if not Path(path).exists():
+                print(f"  missing local shard {fname}", flush=True)
+                continue
+            print(f"  local shard {fname} …", flush=True)
+        else:
+            remote = f"data/{fname}"
+            print(f"  shard {remote} …", flush=True)
+            try:
+                path = hf_hub_download(
+                    "huggan/wikiart",
+                    remote,
+                    repo_type="dataset",
+                    token=token,
+                )
+            except Exception as exc:
+                print(f"  skip shard: {exc}", flush=True)
+                continue
+
         try:
-            era = STYLE_TO_ERA.get(names[int(row["style"])])
-        except Exception:
+            table = pq.read_table(path, columns=["image", "style"])
+        except Exception as exc:
+            print(f"  read fail: {exc}", flush=True)
             continue
-        if era is None or len(buckets[era]) >= PER_ERA:
-            continue
-        try:
-            arr = to_array(row["image"])
-        except Exception:
-            continue
-        buckets[era].append(arr)
-        save_cache(era, arr)
-        if seen % 300 == 0:
-            print(" ", {k: len(v) for k, v in buckets.items()}, flush=True)
+
+        styles = table.column("style").to_pylist()
+        images = table.column("image")
+        shard_kept = 0
+        for idx, style_id in enumerate(styles):
+            if all(len(buckets[e]) >= PER_ERA for e in ERAS):
+                break
+            try:
+                style_name = names[int(style_id)]
+            except Exception:
+                continue
+            era = STYLE_TO_ERA.get(style_name)
+            if era is None or len(buckets[era]) >= PER_ERA:
+                continue
+            arr = _image_from_parquet_cell(images[idx].as_py())
+            if arr is None:
+                continue
+            buckets[era].append(arr)
+            save_cache(era, arr)
+            kept += 1
+            shard_kept += 1
+            if kept % 50 == 0:
+                print(
+                    f"  kept={kept} { {k: len(buckets[k]) for k in ERAS} }",
+                    flush=True,
+                )
+
+        print(
+            f"  shard {shard_i} done (+{shard_kept}) "
+            f"{ {k: len(buckets[k]) for k in ERAS} }",
+            flush=True,
+        )
+        if os.environ.get("WIKIART_DELETE_SHARDS") == "1" and not local_dir:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    print(
+        f"WikiArt done kept={kept} { {k: len(buckets[k]) for k in ERAS} }",
+        flush=True,
+    )
     return buckets
 
 
