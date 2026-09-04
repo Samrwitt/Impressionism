@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Train a tiny conv net for art eras and export JSON weights for Dart."""
+"""Train MobileNetV2 art-era classifier and export quantized TFLite."""
 
 from __future__ import annotations
 
 import io
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 from collections import defaultdict
@@ -22,9 +23,13 @@ from tensorflow.keras import layers
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "era_cache"
-IMG_SIZE = 48
-PER_ERA = 72
+IMG_SIZE = 160
+PER_ERA = 180
+AUG_PER_UNIQUE = 4
 SEED = 42
+WIKIART_MAX_SCAN = 18000
+WIKIART_TIMEOUT_SEC = 600
+COMMONS_PER_CATEGORY = 40
 
 ERAS = [
     "Renaissance",
@@ -86,26 +91,38 @@ FILES = {
         "Raphael - The Sistine Madonna - Google Art Project.jpg",
         "Albrecht Dürer - Adam and Eve (Prado).jpg",
         "Pieter Bruegel the Elder - The Tower of Babel (Vienna) - Google Art Project.jpg",
+        "Leonardo da Vinci - Lady with an Ermine.jpg",
+        "Titian - Bacchus and Ariadne - Google Art Project.jpg",
+        "Sandro Botticelli - La Primavera - Google Art Project.jpg",
+        "Raphael - Portrait of Baldassare Castiglione - Google Art Project.jpg",
     ],
     "Baroque": [
         "The Nightwatch by Rembrandt.jpg",
         "Girl with a Pearl Earring.jpg",
         "Caravaggio - The Calling of Saint Matthew.jpg",
-        "Rembrandt Harmensz. van Rijn - The Anatomy Lesson of Dr Nicolaes Tulp.jpg",
-        "The Swing (Fragonard).jpg",
         "Las Meninas, by Diego Velázquez, from Prado in Google Earth.jpg",
         "The Entombment of Christ-Caravaggio (c.1602-3).jpg",
-        "Watteau, Antoine - The Embarkation for Cythera.jpg",
+        "Rembrandt - The Jewish Bride - Google Art Project.jpg",
+        "Peter Paul Rubens - The Rape of the Daughters of Leucippus.jpg",
+        "Diego Velázquez - Portrait of Pope Innocent X.jpg",
+        "Judith Leyster - The Proposition.jpg",
+        "Frans Hals - The Laughing Cavalier.jpg",
+        "Caravaggio - Judith Beheading Holofernes.jpg",
+        "Rembrandt - Self-Portrait with Two Circles.jpg",
     ],
     "Romanticism": [
         "Eugène Delacroix - Le 28 Juillet. La Liberté guidant le peuple.jpg",
         "Caspar David Friedrich - Wanderer above the sea of fog.jpg",
-        "Théodore Géricault - The Raft of the Medusa.jpg",
         "The Fighting Temeraire, JMW Turner, National Gallery.jpg",
         "John Constable The Hay Wain.jpg",
-        "Saturn devouring his son.jpg",
         "Caspar David Friedrich - The Abbey in the Oakwood.jpg",
         "Joseph Mallord William Turner - Fishermen at Sea - Google Art Project.jpg",
+        "Théodore Géricault - The Raft of the Medusa - Louvre Museum.jpg",
+        "Francisco de Goya - The Third of May 1808 - Google Art Project.jpg",
+        "Eugène Delacroix - Death of Sardanapalus.jpg",
+        "John Constable - Salisbury Cathedral from the Meadows.jpg",
+        "Caspar David Friedrich - The Sea of Ice.jpg",
+        "William Blake - The Ancient of Days.jpg",
     ],
     "Realism": [
         "Jean-François Millet - Gleaners - Google Art Project 2.jpg",
@@ -114,48 +131,120 @@ FILES = {
         "Jean-François Millet Angelus.jpg",
         "Ilya Repin - Barge Haulers on the Volga - Google Art Project.jpg",
         "Winslow Homer - The Gulf Stream - Metropolitan Museum of Art.jpg",
-        "Honoré Daumier - The Third-Class Carriage - Google Art Project.jpg",
         "Gustave Courbet - A Burial at Ornans - Musée d'Orsay.jpg",
+        "Jean-François Millet - The Sower - Google Art Project.jpg",
+        "Édouard Manet - Olympia - Google Art Project.jpg",
+        "Gustave Courbet - The Stone Breakers.jpg",
+        "Thomas Eakins - The Gross Clinic.jpg",
+        "Winslow Homer - Snap the Whip.jpg",
     ],
     "Impressionism": [
         "Claude Monet, Impression, soleil levant.jpg",
         "Claude Monet - Water Lilies - 1906, Ryerson.jpg",
-        "Claude Monet - Haystacks, end of Summer.jpg",
         "Claude Monet - The Magpie - Google Art Project.jpg",
         "Pierre-Auguste Renoir, Le Moulin de la Galette.jpg",
         "Pierre-Auguste Renoir - Luncheon of the Boating Party - Google Art Project.jpg",
         "Edgar Degas - The Ballet Class - Google Art Project.jpg",
-        "Camille Pissarro - Boulevard Montmartre, Spring.jpg",
+        "Claude Monet - Woman with a Parasol - Madame Monet and Her Son.jpg",
+        "Camille Pissarro - The Boulevard Montmartre on a Winter Morning.jpg",
+        "Berthe Morisot - The Cradle.jpg",
+        "Alfred Sisley - Flood at Port-Marly.jpg",
+        "Claude Monet - Rouen Cathedral, Facade (Sunset).jpg",
+        "Pierre-Auguste Renoir - Dance at Bougival.jpg",
     ],
     "Post-Impressionism": [
         "Van Gogh - Starry Night - Google Art Project.jpg",
         "Vincent van Gogh - Sunflowers - VGM F458.jpg",
-        "Paul Cézanne, The Card Players, 1892-93.jpg",
-        "Mont Sainte-Victoire, by Paul Cézanne.jpg",
         "A Sunday on La Grande Jatte, Georges Seurat, 1884.jpg",
-        "Vincent van Gogh - Wheatfield with Crows.jpg",
-        "Paul Gauguin - When Will You Marry? - Google Art Project.jpg",
         "Vincent van Gogh - The Bedroom - Google Art Project.jpg",
+        "Paul Cézanne - The Card Players.jpg",
+        "Vincent van Gogh - Café Terrace at Night.jpg",
+        "Paul Gauguin - Vision After the Sermon.jpg",
+        "Georges Seurat - Bathers at Asnières.jpg",
+        "Vincent van Gogh - Irises - Google Art Project.jpg",
+        "Paul Cézanne - Still Life with Apples.jpg",
+        "Henri de Toulouse-Lautrec - At the Moulin Rouge.jpg",
+        "Vincent van Gogh - Self-Portrait with Grey Felt Hat.jpg",
     ],
     "Modern": [
         "Vassily Kandinsky, 1913 - Composition 7.jpg",
-        "Franz Marc-The Dream-1912.jpg",
-        "Robert Delaunay, 1912-13, Premier Disque.jpg",
-        "Umberto Boccioni - Unique Forms of Continuity in Space.jpg",
-        "Gino Severini, 1912, Dynamic Hieroglyphic of the Bal Tabarin.jpg",
         "Piet Mondriaan, 1930 - Mondrian Composition II in Red, Blue, and Yellow.jpg",
         "Kazimir Malevich, 1915, Black Suprematic Square, oil on linen canvas, 79.5 x 79.5 cm, Tretyakov Gallery, Moscow.jpg",
         "Theo van Doesburg Composition VII (the three graces).jpg",
+        "Pablo Picasso, 1907, Les Demoiselles d'Avignon.jpg",
+        "Henri Matisse - The Dance (II).jpg",
+        "Umberto Boccioni - Unique Forms of Continuity in Space 1913.jpg",
+        "Fernand Léger - The City.jpg",
+        "Wassily Kandinsky - Yellow-Red-Blue.jpg",
+        "Piet Mondrian - Composition with Red Blue and Yellow.jpg",
+        "Marc Chagall - I and the Village.jpg",
+        "Amedeo Modigliani - Jeanne Hébuterne.jpg",
     ],
     "Contemporary": [
         "Nighthawks by Edward Hopper 1942.jpg",
         "Grant Wood - American Gothic - Google Art Project.jpg",
-        "Christina's World.jpg",
         "Edward Hopper - Automat.jpg",
-        "Georgia O'Keeffe, Red Canna, 1924.jpg",
-        "René Magritte - The Treachery of Images.jpg",
-        "Andrew Wyeth Christina's World.jpg",
-        "Edward Hopper, Cape Cod Morning, 1950.jpg",
+        "Jackson Pollock - Number 1A, 1948.jpg",
+        "Mark Rothko - No. 61 (Rust and Blue).jpg",
+        "Andy Warhol - Campbell's Soup Cans MOMA.jpg",
+        "Roy Lichtenstein - Whaam!.jpg",
+        "Edward Hopper - Early Sunday Morning.jpg",
+        "Georgia O'Keeffe - Cow's Skull: Red, White, and Blue.jpg",
+        "Frida Kahlo - The Two Fridas.jpg",
+        "Francis Bacon - Three Studies for Figures at the Base of a Crucifixion.jpg",
+        "David Hockney - A Bigger Splash.jpg",
+        "Mark Rothko - Orange and Yellow.jpg",
+        "Andy Warhol - Marilyn Diptych.jpg",
+        "Roy Lichtenstein - Drowning Girl.jpg",
+        "Helen Frankenthaler - Mountains and Sea.jpg",
+        "Willem de Kooning - Woman I.jpg",
+        "Jasper Johns - Flag.jpg",
+        "Robert Rauschenberg - Canyon.jpg",
+        "Yves Klein - IKB 191.jpg",
+    ],
+}
+
+# Extra Commons categories (painting files) to grow unique coverage beyond named FILES.
+ERA_CATEGORIES = {
+    "Renaissance": [
+        "Category:Italian Renaissance paintings",
+        "Category:Northern Renaissance paintings",
+        "Category:Renaissance portraits",
+    ],
+    "Baroque": [
+        "Category:Baroque paintings",
+        "Category:Dutch Golden Age paintings",
+        "Category:Caravaggio",
+    ],
+    "Romanticism": [
+        "Category:Romantic paintings",
+        "Category:Paintings by Caspar David Friedrich",
+        "Category:Paintings by Eugène Delacroix",
+    ],
+    "Realism": [
+        "Category:Realist paintings",
+        "Category:Paintings by Jean-François Millet",
+        "Category:Paintings by Gustave Courbet",
+    ],
+    "Impressionism": [
+        "Category:Impressionist paintings",
+        "Category:Paintings by Claude Monet",
+        "Category:Paintings by Pierre-Auguste Renoir",
+    ],
+    "Post-Impressionism": [
+        "Category:Post-Impressionist paintings",
+        "Category:Paintings by Vincent van Gogh",
+        "Category:Paintings by Paul Cézanne",
+    ],
+    "Modern": [
+        "Category:Cubist paintings",
+        "Category:Expressionist paintings",
+        "Category:Paintings by Pablo Picasso",
+    ],
+    "Contemporary": [
+        "Category:Abstract expressionist paintings",
+        "Category:Pop art",
+        "Category:Paintings by Mark Rothko",
     ],
 }
 
@@ -180,20 +269,49 @@ def decode(raw: bytes) -> np.ndarray | None:
         return None
 
 
-def http_get(url: str) -> bytes | None:
-    req = urllib.request.Request(url, headers={"User-Agent": "ArtEraTrainer/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            return resp.read()
-    except Exception as exc:
-        print(f"  skip: {exc}")
-        return None
+def http_get(url: str, retries: int = 4) -> bytes | None:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "ArtEraTrainer/2.1 (on-device art education; local research)",
+            "Accept": "image/*,application/json;q=0.9,*/*;q=0.8",
+        },
+    )
+    delay = 1.5
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+            time.sleep(0.35)  # be polite to Commons
+            return data
+        except Exception as exc:
+            msg = str(exc)
+            if "429" in msg or "503" in msg:
+                time.sleep(delay)
+                delay = min(delay * 2.0, 30.0)
+                continue
+            if attempt == 0:
+                print(f"  skip: {exc}", flush=True)
+            return None
+    print(f"  skip: rate-limited {url[:80]}", flush=True)
+    return None
 
 
-def save_cache(era: str, idx: int, arr: np.ndarray) -> None:
+def save_cache(era: str, arr: np.ndarray) -> None:
     folder = CACHE / era
     folder.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(arr).save(folder / f"{idx:04d}.jpg", quality=90)
+    existing = list(folder.glob("*.jpg"))
+    next_idx = 1
+    if existing:
+        nums = []
+        for p in existing:
+            try:
+                nums.append(int(p.stem))
+            except ValueError:
+                continue
+        if nums:
+            next_idx = max(nums) + 1
+    Image.fromarray(arr).save(folder / f"{next_idx:04d}.jpg", quality=90)
 
 
 def load_cache() -> dict[str, list[np.ndarray]]:
@@ -213,25 +331,31 @@ def load_cache() -> dict[str, list[np.ndarray]]:
 
 
 def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndarray]]:
-    if os.environ.get("SKIP_WIKIART") == "1":
-        print("SKIP_WIKIART=1 — using Commons + cache only")
+    if os.environ.get("SKIP_WIKIART", "1") == "1":
+        print("SKIP_WIKIART=1", flush=True)
         return buckets
     try:
         from datasets import load_dataset
     except ImportError:
-        print("datasets not installed; skipping WikiArt stream")
+        print("datasets missing", flush=True)
         return buckets
+
     print("Streaming WikiArt…", flush=True)
     try:
         ds = load_dataset("huggan/wikiart", split="train", streaming=True)
         names = ds.features["style"].names
     except Exception as exc:
-        print(f"WikiArt unavailable ({exc})")
+        print(f"WikiArt unavailable ({exc})", flush=True)
         return buckets
+
+    started = time.time()
     seen = 0
     for row in ds:
         seen += 1
-        if all(len(buckets[e]) >= PER_ERA for e in ERAS) or seen > 12000:
+        if all(len(buckets[e]) >= PER_ERA for e in ERAS):
+            break
+        if seen > WIKIART_MAX_SCAN or (time.time() - started) > WIKIART_TIMEOUT_SEC:
+            print(f"WikiArt stop after scan={seen}", flush=True)
             break
         try:
             era = STYLE_TO_ERA.get(names[int(row["style"])])
@@ -244,14 +368,17 @@ def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndar
         except Exception:
             continue
         buckets[era].append(arr)
-        save_cache(era, len(buckets[era]), arr)
-        if seen % 400 == 0:
-            print("  ", {k: len(v) for k, v in buckets.items()})
+        save_cache(era, arr)
+        if seen % 300 == 0:
+            print(" ", {k: len(v) for k, v in buckets.items()}, flush=True)
     return buckets
 
 
 def load_wikimedia(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndarray]]:
-    print("Downloading Commons examples…")
+    if os.environ.get("CACHE_ONLY") == "1":
+        print("CACHE_ONLY=1 — skip Commons named downloads", flush=True)
+        return buckets
+    print("Downloading Commons named examples…", flush=True)
     for era, names in FILES.items():
         for name in names:
             if len(buckets[era]) >= PER_ERA:
@@ -263,8 +390,85 @@ def load_wikimedia(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.nd
             if arr is None:
                 continue
             buckets[era].append(arr)
-            save_cache(era, len(buckets[era]), arr)
-            print(f"  {era}: {len(buckets[era])} ({name})")
+            save_cache(era, arr)
+            print(f"  {era}: {len(buckets[era])} ({name})", flush=True)
+    return buckets
+
+
+def commons_category_titles(category: str, limit: int) -> list[str]:
+    titles: list[str] = []
+    cont = None
+    while len(titles) < limit:
+        params = {
+            "action": "query",
+            "format": "json",
+            "generator": "categorymembers",
+            "gcmtitle": category,
+            "gcmtype": "file",
+            "gcmlimit": str(min(50, limit - len(titles))),
+            "prop": "imageinfo",
+            "iiprop": "url|mime",
+            "iiurlwidth": "640",
+        }
+        if cont:
+            params["gcmcontinue"] = cont
+        url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
+        raw = http_get(url)
+        if not raw:
+            break
+        try:
+            data = json.loads(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            break
+        pages = (data.get("query") or {}).get("pages") or {}
+        for page in pages.values():
+            info = (page.get("imageinfo") or [{}])[0]
+            mime = str(info.get("mime") or "")
+            if not mime.startswith("image/"):
+                continue
+            thumb = info.get("thumburl") or info.get("url")
+            title = page.get("title") or ""
+            if not thumb or not title.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                # still accept if thumb exists
+                if not thumb:
+                    continue
+            titles.append(thumb)
+            if len(titles) >= limit:
+                break
+        cont = (data.get("continue") or {}).get("gcmcontinue")
+        if not cont:
+            break
+    return titles
+
+
+def load_commons_categories(
+    buckets: dict[str, list[np.ndarray]],
+) -> dict[str, list[np.ndarray]]:
+    if os.environ.get("CACHE_ONLY") == "1":
+        print("CACHE_ONLY=1 — skip Commons categories", flush=True)
+        return buckets
+    print("Downloading Commons category samples…", flush=True)
+    for era, cats in ERA_CATEGORIES.items():
+        if len(buckets[era]) >= PER_ERA:
+            continue
+        for cat in cats:
+            if len(buckets[era]) >= PER_ERA:
+                break
+            need = min(COMMONS_PER_CATEGORY, PER_ERA - len(buckets[era]))
+            urls = commons_category_titles(cat, need)
+            print(f"  {era}/{cat}: {len(urls)} urls", flush=True)
+            for u in urls:
+                if len(buckets[era]) >= PER_ERA:
+                    break
+                raw = http_get(u)
+                if not raw:
+                    continue
+                arr = decode(raw)
+                if arr is None:
+                    continue
+                buckets[era].append(arr)
+                save_cache(era, arr)
+            print(f"  {era} now {len(buckets[era])}", flush=True)
     return buckets
 
 
@@ -272,106 +476,165 @@ def augment(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     out = img.astype(np.float32)
     if rng.random() < 0.5:
         out = np.fliplr(out)
-    if rng.random() < 0.3:
+    if rng.random() < 0.25:
         out = np.rot90(out, int(rng.integers(1, 4)))
-    out = np.clip(out * rng.uniform(0.8, 1.2) + rng.uniform(-18, 18), 0, 255)
+    out = np.clip(out * rng.uniform(0.75, 1.25) + rng.uniform(-20, 20), 0, 255)
+    if rng.random() < 0.4:
+        out = np.roll(out, int(rng.integers(-10, 11)), axis=1)
+    if rng.random() < 0.4:
+        out = np.roll(out, int(rng.integers(-10, 11)), axis=0)
+    # mild crop-resize jitter
     if rng.random() < 0.35:
-        shift = int(rng.integers(-6, 7))
-        out = np.roll(out, shift, axis=1)
+        m = int(rng.integers(2, 12))
+        cropped = out[m : IMG_SIZE - m, m : IMG_SIZE - m]
+        cropped = np.array(
+            Image.fromarray(cropped.astype(np.uint8)).resize(
+                (IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR
+            )
+        )
+        out = cropped.astype(np.float32)
     return out.astype(np.uint8)
 
 
-def build_model() -> keras.Model:
+def build_model(num_classes: int) -> tuple[keras.Model, keras.Model]:
     inputs = keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3), name="image")
-    x = layers.Conv2D(12, 3, padding="same", activation="relu", name="c1")(inputs)
-    x = layers.MaxPool2D(2, name="p1")(x)
-    x = layers.Conv2D(24, 3, padding="same", activation="relu", name="c2")(x)
-    x = layers.MaxPool2D(2, name="p2")(x)
-    x = layers.Flatten()(x)
-    x = layers.Dropout(0.4)(x)
-    x = layers.Dense(32, activation="relu", name="d1")(x)
-    outputs = layers.Dense(len(ERAS), name="logits")(x)
-    return keras.Model(inputs, outputs, name="era_cnn")
+    # App sends RGB 0–1; MobileNetV2 expects [-1, 1].
+    x = layers.Rescaling(2.0, offset=-1.0)(inputs)
+    base = keras.applications.MobileNetV2(
+        input_shape=(IMG_SIZE, IMG_SIZE, 3),
+        include_top=False,
+        weights="imagenet",
+        alpha=0.35,
+        pooling="avg",
+    )
+    base.trainable = False
+    x = base(x, training=False)
+    x = layers.Dropout(0.35)(x)
+    outputs = layers.Dense(num_classes, name="logits")(x)
+    model = keras.Model(inputs, outputs, name="era_mobilenet")
+    return model, base
 
 
-def export_json(model: keras.Model) -> None:
-    c1 = model.get_layer("c1")
-    c2 = model.get_layer("c2")
-    d1 = model.get_layer("d1")
-    logits = model.get_layer("logits")
-    k1, b1 = c1.get_weights()
-    k2, b2 = c2.get_weights()
-    w3, b3 = d1.get_weights()
-    w4, b4 = logits.get_weights()
-    payload = {
-        "type": "cnn",
-        "size": IMG_SIZE,
-        "labels": [{"era": era, "years": ERA_YEARS[era]} for era in ERAS],
-        "k1": k1.tolist(),
-        "b1": b1.tolist(),
-        "k2": k2.tolist(),
-        "b2": b2.tolist(),
-        "w3": w3.tolist(),
-        "b3": b3.tolist(),
-        "w4": w4.tolist(),
-        "b4": b4.tolist(),
-    }
+def export_tflite(model: keras.Model) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out = OUT_DIR / "era_cnn.json"
-    out.write_text(json.dumps(payload), encoding="utf-8")
     (OUT_DIR / "labels.txt").write_text(
         "\n".join(f"{era}|{ERA_YEARS[era]}" for era in ERAS) + "\n",
         encoding="utf-8",
     )
-    print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)")
+
+    def rep_data():
+        for _ in range(40):
+            yield [np.random.rand(1, IMG_SIZE, IMG_SIZE, 3).astype(np.float32)]
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = rep_data
+    # Keep float I/O for simple Flutter preprocessing (0–1 RGB).
+    tflite_model = converter.convert()
+    out = OUT_DIR / "era_model.tflite"
+    out.write_bytes(tflite_model)
+    print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)", flush=True)
+
+
+def pack(imgs: list[np.ndarray], label: int, rng: np.random.Generator, n_aug: int):
+    xs: list[np.ndarray] = []
+    ys: list[int] = []
+    for im in imgs:
+        xs.append(im.astype(np.float32) / 255.0)
+        ys.append(label)
+        for _ in range(n_aug):
+            xs.append(augment(im, rng).astype(np.float32) / 255.0)
+            ys.append(label)
+    return xs, ys
 
 
 def main() -> None:
     tf.random.set_seed(SEED)
     rng = np.random.default_rng(SEED)
+
     buckets = load_cache()
-    print("cache", {k: len(v) for k, v in buckets.items()})
+    print("cache", {k: len(v) for k, v in buckets.items()}, flush=True)
     buckets = load_wikiart(buckets)
     buckets = load_wikimedia(buckets)
+    buckets = load_commons_categories(buckets)
 
-    xs: list[np.ndarray] = []
-    ys: list[int] = []
+    x_train_list: list[np.ndarray] = []
+    y_train_list: list[int] = []
+    x_val_list: list[np.ndarray] = []
+    y_val_list: list[int] = []
+
     for idx, era in enumerate(ERAS):
-        samples = buckets[era]
-        if not samples:
-            raise RuntimeError(f"No images for {era}")
-        while len(samples) < PER_ERA:
-            samples.append(augment(samples[int(rng.integers(0, len(samples)))], rng))
-        print(f"{era}: {len(samples[:PER_ERA])}")
-        for im in samples[:PER_ERA]:
-            xs.append(im.astype(np.float32) / 255.0)
-            ys.append(idx)
+        samples = list(buckets[era])
+        if len(samples) < 4:
+            raise RuntimeError(f"Too few unique images for {era}: {len(samples)}")
+        order = rng.permutation(len(samples))
+        samples = [samples[i] for i in order]
+        # Hold out unique paintings (not augmented copies) for validation.
+        n_val = max(2, int(round(len(samples) * 0.2)))
+        val_imgs = samples[:n_val]
+        train_imgs = samples[n_val:]
+        if not train_imgs:
+            train_imgs, val_imgs = samples[:-1], samples[-1:]
 
-    x = np.stack(xs, axis=0)
-    y = np.array(ys, dtype=np.int32)
-    perm = rng.permutation(len(x))
-    x, y = x[perm], y[perm]
-    split = max(1, int(len(x) * 0.18))
-    x_val, y_val = x[:split], y[:split]
-    x_train, y_train = x[split:], y[split:]
+        # Cap train uniques used for augmentation budget.
+        if len(train_imgs) > PER_ERA:
+            train_imgs = train_imgs[:PER_ERA]
 
-    model = build_model()
+        tx, ty = pack(train_imgs, idx, rng, AUG_PER_UNIQUE)
+        vx, vy = pack(val_imgs, idx, rng, 0)  # no aug in val
+        print(
+            f"{era}: train_unique={len(train_imgs)} val_unique={len(val_imgs)} "
+            f"train_aug={len(tx)}",
+            flush=True,
+        )
+        x_train_list.extend(tx)
+        y_train_list.extend(ty)
+        x_val_list.extend(vx)
+        y_val_list.extend(vy)
+
+    x_train = np.stack(x_train_list, axis=0)
+    y_train = np.array(y_train_list, dtype=np.int32)
+    x_val = np.stack(x_val_list, axis=0)
+    y_val = np.array(y_val_list, dtype=np.int32)
+    perm = rng.permutation(len(x_train))
+    x_train, y_train = x_train[perm], y_train[perm]
+
+    model, base = build_model(len(ERAS))
     model.compile(
-        optimizer=keras.optimizers.Adam(1.2e-3),
+        optimizer=keras.optimizers.Adam(1e-3),
         loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=["accuracy"],
     )
+    print("Training classification head…", flush=True)
     model.fit(
         x_train,
         y_train,
         validation_data=(x_val, y_val),
-        epochs=18,
-        batch_size=32,
+        epochs=12,
+        batch_size=24,
         verbose=2,
     )
-    val_loss, val_acc = model.evaluate(x_val, y_val, verbose=0)
-    print(f"held-out accuracy: {val_acc:.3f}")
-    export_json(model)
+
+    base.trainable = True
+    for layer in base.layers[:-50]:
+        layer.trainable = False
+    model.compile(
+        optimizer=keras.optimizers.Adam(1e-5),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        metrics=["accuracy"],
+    )
+    print("Fine-tuning last MobileNet blocks…", flush=True)
+    model.fit(
+        x_train,
+        y_train,
+        validation_data=(x_val, y_val),
+        epochs=10,
+        batch_size=16,
+        verbose=2,
+    )
+    _, val_acc = model.evaluate(x_val, y_val, verbose=0)
+    print(f"held-out unique accuracy: {val_acc:.3f}", flush=True)
+    export_tflite(model)
 
 
 if __name__ == "__main__":

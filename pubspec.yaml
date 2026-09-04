@@ -13,6 +13,7 @@ dependencies:
   google_fonts: ^8.2.1
   image_picker: ^1.2.3
   image: ^4.2.0
+  tflite_flutter: ^0.11.0
 
 dev_dependencies:
   flutter_test:
@@ -41,5 +42,5 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
-    - assets/models/era_cnn.json
+    - assets/models/era_model.tflite
     - assets/models/labels.txt

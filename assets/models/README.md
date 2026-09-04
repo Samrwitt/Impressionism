@@ -1,6 +1,6 @@
 # On-device art era model
 
-Tiny conv net (`era_cnn.json`) classifies:
+Quantized MobileNetV2 (`era_model.tflite`) classifies:
 
 Renaissance, Baroque, Romanticism, Realism, Impressionism, Post-Impressionism, Modern, Contemporary.
 

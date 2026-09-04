@@ -6,8 +6,8 @@ plugins {
 
 android {
     namespace = "com.impressionism.app.impressionism_app"
-    compileSdk = flutter.compileSdkVersion
-    // ndkVersion = flutter.ndkVersion
+    compileSdk = maxOf(flutter.compileSdkVersion, 36)
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -19,7 +19,7 @@ android {
         applicationId = "com.impressionism.app.impressionism_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 26)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -34,6 +34,8 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -46,4 +48,17 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+configurations.all {
+    exclude(group = "org.tensorflow", module = "tensorflow-lite-gpu")
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.tensorflow" &&
+            (requested.name == "tensorflow-lite" ||
+                requested.name == "tensorflow-lite-api" ||
+                requested.name == "tensorflow-lite-gpu-api")
+        ) {
+            useVersion("2.16.1")
+        }
+    }
 }
