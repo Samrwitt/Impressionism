@@ -1,8 +1,11 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img_pkg;
 import 'package:tflite_flutter/tflite_flutter.dart';
+
 import '../models/prediction_result.dart';
 
 class ClassifierService {
@@ -12,6 +15,11 @@ class ClassifierService {
   static List<String> _artistLabels = [];
   static bool _ready = false;
   static String status = 'Loading model…';
+
+  /// Preallocated tensors — avoid rebuilding nested lists every prediction.
+  static late List<List<List<List<double>>>> _input;
+  static late List<List<double>> _eraOut;
+  static late List<List<double>> _artistOut;
 
   static bool get isReady => _ready;
   static const _size = 160;
@@ -46,14 +54,31 @@ class ClassifierService {
       return;
     }
 
+    _input = List.generate(
+      1,
+      (_) => List.generate(
+        _size,
+        (_) => List.generate(_size, (_) => List<double>.filled(3, 0.0)),
+      ),
+    );
+    _eraOut = List.generate(1, (_) => List<double>.filled(_eraLabels.length, 0.0));
+    _artistOut = List.generate(
+      1,
+      (_) => List<double>.filled(math.max(_artistLabels.length, 1), 0.0),
+    );
+
+    final options = InterpreterOptions()..threads = 4;
+
     try {
       _eraInterpreter = await Interpreter.fromAsset(
         'assets/models/era_model.tflite',
+        options: options,
       );
       if (_artistLabels.isNotEmpty) {
         try {
           _artistInterpreter = await Interpreter.fromAsset(
             'assets/models/artist_model.tflite',
+            options: InterpreterOptions()..threads = 2,
           );
         } catch (_) {
           _artistInterpreter = null;
@@ -65,7 +90,10 @@ class ClassifierService {
       status = 'On-device · ${_eraLabels.length} eras$artistNote';
     } catch (e) {
       try {
-        _eraInterpreter = await Interpreter.fromAsset('models/era_model.tflite');
+        _eraInterpreter = await Interpreter.fromAsset(
+          'models/era_model.tflite',
+          options: options,
+        );
         _ready = true;
         status = 'On-device · ${_eraLabels.length} eras';
       } catch (_) {
@@ -82,31 +110,10 @@ class ClassifierService {
       throw Exception(status);
     }
 
-    final decoded = img_pkg.decodeImage(imageBytes);
-    if (decoded == null) {
-      throw Exception('Could not read that image.');
-    }
-    final resized = img_pkg.copyResize(
-      decoded,
-      width: _size,
-      height: _size,
-      interpolation: img_pkg.Interpolation.cubic,
-    );
+    _fillInput(imageBytes);
 
-    final input = List.generate(
-      1,
-      (_) => List.generate(
-        _size,
-        (y) => List.generate(_size, (x) {
-          final p = resized.getPixel(x, y);
-          return [p.r / 255.0, p.g / 255.0, p.b / 255.0];
-        }),
-      ),
-    );
-
-    final eraOut = List.generate(1, (_) => List.filled(_eraLabels.length, 0.0));
-    eraInterpreter.run(input, eraOut);
-    final eraProbs = _softmax(eraOut[0]);
+    eraInterpreter.run(_input, _eraOut);
+    final eraProbs = _softmax(_eraOut[0]);
     final rankedEras = <EraScore>[];
     for (var i = 0; i < eraProbs.length; i++) {
       rankedEras.add(
@@ -125,15 +132,12 @@ class ClassifierService {
     double? artistConfidence;
     var topArtists = <ArtistScore>[];
 
-    // Artist guess among Monet / Renoir / Degas / Pissarro when Impressionism.
     final artistInterpreter = _artistInterpreter;
     if (artistInterpreter != null &&
         _artistLabels.isNotEmpty &&
         topEra.era == 'Impressionism') {
-      final artistOut =
-          List.generate(1, (_) => List.filled(_artistLabels.length, 0.0));
-      artistInterpreter.run(input, artistOut);
-      final artistProbs = _softmax(artistOut[0]);
+      artistInterpreter.run(_input, _artistOut);
+      final artistProbs = _softmax(_artistOut[0]);
       for (var i = 0; i < artistProbs.length; i++) {
         topArtists.add(
           ArtistScore(
@@ -159,6 +163,48 @@ class ClassifierService {
       artistConfidence: artistConfidence,
       topArtists: topArtists,
     );
+  }
+
+  /// Decode → cheap downscale → 160² → write into preallocated input tensor.
+  static void _fillInput(Uint8List imageBytes) {
+    var decoded = img_pkg.decodeImage(imageBytes);
+    if (decoded == null) {
+      throw Exception('Could not read that image.');
+    }
+
+    // Shrink huge camera photos before the final 160² resize.
+    const prepSide = 320;
+    final maxSide = math.max(decoded.width, decoded.height);
+    if (maxSide > prepSide) {
+      final scale = prepSide / maxSide;
+      decoded = img_pkg.copyResize(
+        decoded,
+        width: math.max(1, (decoded.width * scale).round()),
+        height: math.max(1, (decoded.height * scale).round()),
+        interpolation: img_pkg.Interpolation.linear,
+      );
+    }
+
+    final resized = img_pkg.copyResize(
+      decoded,
+      width: _size,
+      height: _size,
+      interpolation: img_pkg.Interpolation.linear,
+    );
+
+    final rgb = resized.getBytes(order: img_pkg.ChannelOrder.rgb);
+    final plane = _input[0];
+    for (var y = 0; y < _size; y++) {
+      final row = plane[y];
+      final rowBase = y * _size * 3;
+      for (var x = 0; x < _size; x++) {
+        final o = rowBase + x * 3;
+        final px = row[x];
+        px[0] = rgb[o] / 255.0;
+        px[1] = rgb[o + 1] / 255.0;
+        px[2] = rgb[o + 2] / 255.0;
+      }
+    }
   }
 
   static List<double> _softmax(List<double> logits) {

@@ -96,13 +96,17 @@ class _EraHomeState extends State<EraHome> {
     });
     try {
       final result = await ClassifierService.predict(bytes);
-      final shown = polishForDisplay(bytes);
       if (!mounted) return;
+      // Show answer immediately; polish display image after.
       setState(() {
-        _image = shown;
         _result = result;
         _busy = false;
       });
+      final shown = await Future<Uint8List>.microtask(
+        () => polishForDisplay(bytes),
+      );
+      if (!mounted || _result != result) return;
+      setState(() => _image = shown);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -116,9 +120,9 @@ class _EraHomeState extends State<EraHome> {
     try {
       final file = await _picker.pickImage(
         source: source,
-        maxWidth: 2048,
-        maxHeight: 2048,
-        imageQuality: 95,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
         preferredCameraDevice: CameraDevice.rear,
       );
       if (file == null) return;

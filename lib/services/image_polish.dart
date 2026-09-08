@@ -7,22 +7,19 @@ Uint8List polishForDisplay(Uint8List bytes) {
   if (image == null) return bytes;
 
   image = img.bakeOrientation(image);
-  image = img.adjustColor(
-    image,
-    contrast: 1.12,
-    saturation: 1.08,
-    exposure: 0.05,
-  );
 
-  const maxSide = 1800;
+  const maxSide = 1280;
   if (image.width > maxSide || image.height > maxSide) {
     image = img.copyResize(
       image,
       width: image.width >= image.height ? maxSide : null,
       height: image.height > image.width ? maxSide : null,
-      interpolation: img.Interpolation.cubic,
+      interpolation: img.Interpolation.linear,
     );
   }
 
-  return Uint8List.fromList(img.encodeJpg(image, quality: 93));
+  // Mild contrast only — skip heavy color math for speed.
+  image = img.adjustColor(image, contrast: 1.08);
+
+  return Uint8List.fromList(img.encodeJpg(image, quality: 82));
 }
