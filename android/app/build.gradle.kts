@@ -27,10 +27,6 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        ndk {
-            // Keep the APK to one ABI — TFLite .so files dominate size.
-            abiFilters += listOf("arm64-v8a")
-        }
     }
 
     buildTypes {
@@ -49,10 +45,16 @@ android {
 
     packaging {
         jniLibs {
-            excludes += setOf("**/libtensorflowlite_gpu_jni.so")
+            excludes += setOf(
+                "**/libtensorflowlite_gpu_jni.so",
+                "lib/armeabi-v7a/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
         }
     }
 }
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
