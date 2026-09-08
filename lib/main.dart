@@ -437,6 +437,40 @@ class _ResultView extends StatelessWidget {
                   color: _muted,
                 ),
               ),
+              if (result.artist != null) ...[
+                const SizedBox(height: 22),
+                Text(
+                  'ARTIST',
+                  style: GoogleFonts.sourceSans3(
+                    fontSize: 11,
+                    letterSpacing: 3.6,
+                    fontWeight: FontWeight.w600,
+                    color: _muted,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  result.artist!,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.fraunces(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w500,
+                    color: _ink,
+                    height: 1.15,
+                  ),
+                ),
+                if (result.artistConfidencePercent != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${result.artistConfidencePercent!.toStringAsFixed(0)}% among Monet · Renoir · Degas · Pissarro',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.sourceSans3(
+                      fontSize: 12,
+                      color: _muted,
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(height: 20),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 36),

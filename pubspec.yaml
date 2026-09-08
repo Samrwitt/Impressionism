@@ -44,3 +44,5 @@ flutter:
   assets:
     - assets/models/era_model.tflite
     - assets/models/labels.txt
+    - assets/models/artist_model.tflite
+    - assets/models/artist_labels.txt
