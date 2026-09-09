@@ -113,29 +113,15 @@ class ClassifierService {
     _fillInput(imageBytes);
 
     eraInterpreter.run(_input, _eraOut);
-    final eraProbs = _softmax(_eraOut[0]);
-    final rankedEras = <EraScore>[];
-    for (var i = 0; i < eraProbs.length; i++) {
-      rankedEras.add(
-        EraScore(
-          era: _eraLabels[i].$1,
-          years: _eraLabels[i].$2,
-          score: eraProbs[i],
-          percentage: double.parse((eraProbs[i] * 100).toStringAsFixed(0)),
-        ),
-      );
-    }
-    rankedEras.sort((a, b) => b.score.compareTo(a.score));
-    final topEra = rankedEras.first;
+    var eraProbs = _softmax(_eraOut[0]);
 
     String? artist;
     double? artistConfidence;
     var topArtists = <ArtistScore>[];
 
+    // Always run the 4-artist head (Monet / Renoir / Degas / Pissarro).
     final artistInterpreter = _artistInterpreter;
-    if (artistInterpreter != null &&
-        _artistLabels.isNotEmpty &&
-        topEra.era == 'Impressionism') {
+    if (artistInterpreter != null && _artistLabels.isNotEmpty) {
       artistInterpreter.run(_input, _artistOut);
       final artistProbs = _softmax(_artistOut[0]);
       for (var i = 0; i < artistProbs.length; i++) {
@@ -154,6 +140,28 @@ class ClassifierService {
       topArtists = topArtists.take(3).toList();
     }
 
+    // Impressionism ↔ Post-Impressionism are often confused. If the artist head
+    // is confident about Monet/Renoir/Degas/Pissarro, prefer Impressionism when
+    // Post-Impressionism only barely wins (or Imp is close).
+    eraProbs = _calibrateImpressionism(
+      eraProbs,
+      artistConfidence: artistConfidence,
+    );
+
+    final rankedEras = <EraScore>[];
+    for (var i = 0; i < eraProbs.length; i++) {
+      rankedEras.add(
+        EraScore(
+          era: _eraLabels[i].$1,
+          years: _eraLabels[i].$2,
+          score: eraProbs[i],
+          percentage: double.parse((eraProbs[i] * 100).toStringAsFixed(0)),
+        ),
+      );
+    }
+    rankedEras.sort((a, b) => b.score.compareTo(a.score));
+    final topEra = rankedEras.first;
+
     return PredictionResult(
       era: topEra.era,
       years: topEra.years,
@@ -163,6 +171,38 @@ class ClassifierService {
       artistConfidence: artistConfidence,
       topArtists: topArtists,
     );
+  }
+
+  /// Soft fix for Imp vs Post-Imp mix-ups using the Impressionist artist signal.
+  static List<double> _calibrateImpressionism(
+    List<double> probs, {
+    double? artistConfidence,
+  }) {
+    final impIdx = _eraLabels.indexWhere((e) => e.$1 == 'Impressionism');
+    final postIdx =
+        _eraLabels.indexWhere((e) => e.$1 == 'Post-Impressionism');
+    if (impIdx < 0 || postIdx < 0) return probs;
+
+    final out = List<double>.from(probs);
+    final imp = out[impIdx];
+    final post = out[postIdx];
+    final artistOk = (artistConfidence ?? 0) >= 0.40;
+
+    // Case 1: Post-Imp wins but Imp is close, and artist looks Impressionist.
+    if (artistOk && post >= imp && (post - imp) < 0.22) {
+      out[impIdx] = post + 0.05;
+      out[postIdx] = imp;
+    }
+    // Case 2: strong artist match — nudge Imp up even if Post-Imp leads more.
+    else if (artistOk && (artistConfidence ?? 0) >= 0.55 && post > imp) {
+      final boost = 0.12 + ((artistConfidence! - 0.55) * 0.25);
+      out[impIdx] = (imp + boost).clamp(0.0, 0.95);
+      out[postIdx] = (post - boost * 0.7).clamp(0.0, 1.0);
+    }
+
+    final sum = out.reduce((a, b) => a + b);
+    if (sum <= 0) return probs;
+    return out.map((e) => e / sum).toList();
   }
 
   /// Decode → cheap downscale → 160² → write into preallocated input tensor.

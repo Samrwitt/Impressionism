@@ -726,7 +726,9 @@ def main() -> None:
         if len(train_imgs) > PER_ERA:
             train_imgs = train_imgs[:PER_ERA]
 
-        tx, ty = pack(train_imgs, idx, rng, AUG_PER_UNIQUE)
+        # Extra augs for Impressionism — model often confuses it with Post-Imp.
+        n_aug = AUG_PER_UNIQUE + (2 if era == "Impressionism" else 0)
+        tx, ty = pack(train_imgs, idx, rng, n_aug)
         vx, vy = pack(val_imgs, idx, rng, 0)  # no aug in val
         print(
             f"{era}: train_unique={len(train_imgs)} val_unique={len(val_imgs)} "
@@ -745,6 +747,12 @@ def main() -> None:
     perm = rng.permutation(len(x_train))
     x_train, y_train = x_train[perm], y_train[perm]
 
+    # Emphasize Impressionism; slightly de-emphasize Post-Impressionism.
+    class_weight = {i: 1.0 for i in range(len(ERAS))}
+    class_weight[ERAS.index("Impressionism")] = 1.8
+    class_weight[ERAS.index("Post-Impressionism")] = 0.85
+    print("class_weight", class_weight, flush=True)
+
     model, base = build_model(len(ERAS))
     model.compile(
         optimizer=keras.optimizers.Adam(1e-3),
@@ -758,6 +766,7 @@ def main() -> None:
         validation_data=(x_val, y_val),
         epochs=12,
         batch_size=24,
+        class_weight=class_weight,
         verbose=2,
     )
 
@@ -776,6 +785,7 @@ def main() -> None:
         validation_data=(x_val, y_val),
         epochs=10,
         batch_size=16,
+        class_weight=class_weight,
         verbose=2,
     )
     _, val_acc = model.evaluate(x_val, y_val, verbose=0)
