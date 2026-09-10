@@ -138,7 +138,7 @@ def main() -> None:
         btn.click(run, inputs=[image], outputs=[pth_label, pth_bar, era_label, era_bar])
         image.change(run, inputs=[image], outputs=[pth_label, pth_bar, era_label, era_bar])
 
-    demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
 
 
 if __name__ == "__main__":

@@ -23,13 +23,28 @@ from tensorflow.keras import layers
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "era_cache"
-IMG_SIZE = 160
-PER_ERA = 250
-AUG_PER_UNIQUE = 3
+IMG_SIZE = 224
+PER_ERA = 500
+AUG_PER_UNIQUE = 5
 SEED = 42
 WIKIART_MAX_SCAN = 40000
-WIKIART_TIMEOUT_SEC = 2400
-COMMONS_PER_CATEGORY = 40
+WIKIART_TIMEOUT_SEC = 3600
+COMMONS_PER_CATEGORY = 80
+MOBILENET_ALPHA = 1.0
+# Extra budget for the eras the app confuses most.
+ERA_TARGETS = {
+    "Impressionism": 650,
+    "Post-Impressionism": 480,
+    "Contemporary": 120,
+}
+
+
+def era_target(era: str) -> int:
+    return int(ERA_TARGETS.get(era, PER_ERA))
+
+
+def eras_full(buckets: dict[str, list[np.ndarray]]) -> bool:
+    return all(len(buckets[e]) >= era_target(e) for e in ERAS)
 
 
 def load_dotenv(path: Path = ROOT / ".env") -> None:
@@ -86,7 +101,8 @@ STYLE_TO_ERA = {
     "Impressionism": "Impressionism",
     "Post_Impressionism": "Post-Impressionism",
     "Pointillism": "Post-Impressionism",
-    "Symbolism": "Post-Impressionism",
+    # Symbolism looks very different from Post-Imp — do NOT fold it in
+    # (it previously muddied Imp vs Post-Imp boundaries).
     "Art_Nouveau": "Modern",
     "Cubism": "Modern",
     "Analytical_Cubism": "Modern",
@@ -415,7 +431,7 @@ def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndar
     local_dir = os.environ.get("WIKIART_LOCAL_DIR", "").strip()
     print(
         f"Loading WikiArt parquet… (token={'yes' if token else 'no'}, "
-        f"target={PER_ERA}/era, max_shards={max_shards}"
+        f"targets={ {e: era_target(e) for e in ERAS} }, max_shards={max_shards}"
         + (f", local={local_dir}" if local_dir else "")
         + ")",
         flush=True,
@@ -442,7 +458,7 @@ def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndar
     kept = 0
 
     for shard_i in range(max_shards):
-        if all(len(buckets[e]) >= PER_ERA for e in ERAS):
+        if eras_full(buckets):
             print("WikiArt targets filled", flush=True)
             break
         if (time.time() - started) > WIKIART_TIMEOUT_SEC:
@@ -480,14 +496,14 @@ def load_wikiart(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.ndar
         images = table.column("image")
         shard_kept = 0
         for idx, style_id in enumerate(styles):
-            if all(len(buckets[e]) >= PER_ERA for e in ERAS):
+            if eras_full(buckets):
                 break
             try:
                 style_name = names[int(style_id)]
             except Exception:
                 continue
             era = STYLE_TO_ERA.get(style_name)
-            if era is None or len(buckets[era]) >= PER_ERA:
+            if era is None or len(buckets[era]) >= era_target(era):
                 continue
             arr = _image_from_parquet_cell(images[idx].as_py())
             if arr is None:
@@ -527,7 +543,7 @@ def load_wikimedia(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.nd
     print("Downloading Commons named examples…", flush=True)
     for era, names in FILES.items():
         for name in names:
-            if len(buckets[era]) >= PER_ERA:
+            if len(buckets[era]) >= era_target(era):
                 break
             raw = http_get(commons_url(name))
             if not raw:
@@ -595,16 +611,16 @@ def load_commons_categories(
         return buckets
     print("Downloading Commons category samples…", flush=True)
     for era, cats in ERA_CATEGORIES.items():
-        if len(buckets[era]) >= PER_ERA:
+        if len(buckets[era]) >= era_target(era):
             continue
         for cat in cats:
-            if len(buckets[era]) >= PER_ERA:
+            if len(buckets[era]) >= era_target(era):
                 break
-            need = min(COMMONS_PER_CATEGORY, PER_ERA - len(buckets[era]))
+            need = min(COMMONS_PER_CATEGORY, era_target(era) - len(buckets[era]))
             urls = commons_category_titles(cat, need)
             print(f"  {era}/{cat}: {len(urls)} urls", flush=True)
             for u in urls:
-                if len(buckets[era]) >= PER_ERA:
+                if len(buckets[era]) >= era_target(era):
                     break
                 raw = http_get(u)
                 if not raw:
@@ -618,20 +634,20 @@ def load_commons_categories(
     return buckets
 
 
-def augment(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def augment(img: np.ndarray, rng: np.random.Generator, strong: bool = False) -> np.ndarray:
     out = img.astype(np.float32)
     if rng.random() < 0.5:
         out = np.fliplr(out)
-    if rng.random() < 0.25:
+    if rng.random() < (0.35 if strong else 0.2):
         out = np.rot90(out, int(rng.integers(1, 4)))
-    out = np.clip(out * rng.uniform(0.75, 1.25) + rng.uniform(-20, 20), 0, 255)
-    if rng.random() < 0.4:
-        out = np.roll(out, int(rng.integers(-10, 11)), axis=1)
-    if rng.random() < 0.4:
-        out = np.roll(out, int(rng.integers(-10, 11)), axis=0)
-    # mild crop-resize jitter
-    if rng.random() < 0.35:
-        m = int(rng.integers(2, 12))
+    out = np.clip(out * rng.uniform(0.7, 1.3) + rng.uniform(-25, 25), 0, 255)
+    if rng.random() < 0.45:
+        out = np.roll(out, int(rng.integers(-14, 15)), axis=1)
+    if rng.random() < 0.45:
+        out = np.roll(out, int(rng.integers(-14, 15)), axis=0)
+    # mild crop-resize jitter (helps brushwork / local texture)
+    if rng.random() < (0.55 if strong else 0.4):
+        m = int(rng.integers(4, 22 if strong else 16))
         cropped = out[m : IMG_SIZE - m, m : IMG_SIZE - m]
         cropped = np.array(
             Image.fromarray(cropped.astype(np.uint8)).resize(
@@ -639,6 +655,10 @@ def augment(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
             )
         )
         out = cropped.astype(np.float32)
+    if strong and rng.random() < 0.3:
+        # slight color channel jitter — Imp vs Post-Imp often differ in palette
+        shift = rng.uniform(-18, 18, size=(1, 1, 3))
+        out = np.clip(out + shift, 0, 255)
     return out.astype(np.uint8)
 
 
@@ -650,18 +670,20 @@ def build_model(num_classes: int) -> tuple[keras.Model, keras.Model]:
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
         include_top=False,
         weights="imagenet",
-        alpha=0.35,
+        alpha=MOBILENET_ALPHA,
         pooling="avg",
     )
     base.trainable = False
     x = base(x, training=False)
-    x = layers.Dropout(0.35)(x)
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(256, activation="relu", name="feat")(x)
+    x = layers.Dropout(0.3)(x)
     outputs = layers.Dense(num_classes, name="logits")(x)
     model = keras.Model(inputs, outputs, name="era_mobilenet")
     return model, base
 
 
-def export_tflite(model: keras.Model) -> None:
+def export_tflite(model: keras.Model, x_calib: np.ndarray | None = None) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "labels.txt").write_text(
         "\n".join(f"{era}|{ERA_YEARS[era]}" for era in ERAS) + "\n",
@@ -669,8 +691,13 @@ def export_tflite(model: keras.Model) -> None:
     )
 
     def rep_data():
-        for _ in range(40):
-            yield [np.random.rand(1, IMG_SIZE, IMG_SIZE, 3).astype(np.float32)]
+        if x_calib is not None and len(x_calib) > 0:
+            idx = np.linspace(0, len(x_calib) - 1, num=min(80, len(x_calib))).astype(int)
+            for i in idx:
+                yield [x_calib[i : i + 1].astype(np.float32)]
+        else:
+            for _ in range(40):
+                yield [np.random.rand(1, IMG_SIZE, IMG_SIZE, 3).astype(np.float32)]
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -682,16 +709,43 @@ def export_tflite(model: keras.Model) -> None:
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)", flush=True)
 
 
-def pack(imgs: list[np.ndarray], label: int, rng: np.random.Generator, n_aug: int):
+def pack(
+    imgs: list[np.ndarray],
+    label: int,
+    rng: np.random.Generator,
+    n_aug: int,
+    strong: bool = False,
+):
     xs: list[np.ndarray] = []
     ys: list[int] = []
     for im in imgs:
         xs.append(im.astype(np.float32) / 255.0)
         ys.append(label)
         for _ in range(n_aug):
-            xs.append(augment(im, rng).astype(np.float32) / 255.0)
+            xs.append(augment(im, rng, strong=strong).astype(np.float32) / 255.0)
             ys.append(label)
     return xs, ys
+
+
+def print_imp_post_confusion(model: keras.Model, x_val: np.ndarray, y_val: np.ndarray) -> None:
+    imp_i = ERAS.index("Impressionism")
+    post_i = ERAS.index("Post-Impressionism")
+    mask = (y_val == imp_i) | (y_val == post_i)
+    if not np.any(mask):
+        return
+    preds = np.argmax(model.predict(x_val[mask], verbose=0), axis=1)
+    yt = y_val[mask]
+    tp_imp = int(np.sum((yt == imp_i) & (preds == imp_i)))
+    fn_imp = int(np.sum((yt == imp_i) & (preds == post_i)))
+    tp_post = int(np.sum((yt == post_i) & (preds == post_i)))
+    fn_post = int(np.sum((yt == post_i) & (preds == imp_i)))
+    other_wrong = int(np.sum((yt != preds) & ~(((yt == imp_i) & (preds == post_i)) | ((yt == post_i) & (preds == imp_i)))))
+    print(
+        "Imp↔Post held-out: "
+        f"Imp→Imp={tp_imp} Imp→Post={fn_imp} "
+        f"Post→Post={tp_post} Post→Imp={fn_post} other_wrong={other_wrong}",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -723,12 +777,14 @@ def main() -> None:
             train_imgs, val_imgs = samples[:-1], samples[-1:]
 
         # Cap train uniques used for augmentation budget.
-        if len(train_imgs) > PER_ERA:
-            train_imgs = train_imgs[:PER_ERA]
+        cap = era_target(era)
+        if len(train_imgs) > cap:
+            train_imgs = train_imgs[:cap]
 
-        # Extra augs for Impressionism — model often confuses it with Post-Imp.
-        n_aug = AUG_PER_UNIQUE + (2 if era == "Impressionism" else 0)
-        tx, ty = pack(train_imgs, idx, rng, n_aug)
+        # Extra augs + stronger jitter for Imp / Post-Imp.
+        hard = era in ("Impressionism", "Post-Impressionism")
+        n_aug = AUG_PER_UNIQUE + (3 if hard else 0)
+        tx, ty = pack(train_imgs, idx, rng, n_aug, strong=hard)
         vx, vy = pack(val_imgs, idx, rng, 0)  # no aug in val
         print(
             f"{era}: train_unique={len(train_imgs)} val_unique={len(val_imgs)} "
@@ -747,11 +803,27 @@ def main() -> None:
     perm = rng.permutation(len(x_train))
     x_train, y_train = x_train[perm], y_train[perm]
 
-    # Emphasize Impressionism; slightly de-emphasize Post-Impressionism.
-    class_weight = {i: 1.0 for i in range(len(ERAS))}
-    class_weight[ERAS.index("Impressionism")] = 1.8
-    class_weight[ERAS.index("Post-Impressionism")] = 0.85
-    print("class_weight", class_weight, flush=True)
+    # Balanced weights; boost Imp slightly so it isn't swallowed by Post-Imp.
+    counts = np.bincount(y_train, minlength=len(ERAS)).astype(np.float32)
+    inv = counts.sum() / np.maximum(counts, 1.0)
+    class_weight = {i: float(inv[i] / inv.mean()) for i in range(len(ERAS))}
+    class_weight[ERAS.index("Impressionism")] *= 1.35
+    class_weight[ERAS.index("Post-Impressionism")] *= 1.15
+    print("class_weight", {ERAS[i]: round(w, 3) for i, w in class_weight.items()}, flush=True)
+
+    callbacks = [
+        keras.callbacks.EarlyStopping(
+            monitor="val_accuracy",
+            patience=4,
+            restore_best_weights=True,
+        ),
+        keras.callbacks.ReduceLROnPlateau(
+            monitor="val_loss",
+            factor=0.5,
+            patience=2,
+            min_lr=1e-7,
+        ),
+    ]
 
     model, base = build_model(len(ERAS))
     model.compile(
@@ -764,17 +836,18 @@ def main() -> None:
         x_train,
         y_train,
         validation_data=(x_val, y_val),
-        epochs=12,
-        batch_size=24,
+        epochs=18,
+        batch_size=16,
         class_weight=class_weight,
+        callbacks=callbacks,
         verbose=2,
     )
 
     base.trainable = True
-    for layer in base.layers[:-50]:
+    for layer in base.layers[:-90]:
         layer.trainable = False
     model.compile(
-        optimizer=keras.optimizers.Adam(1e-5),
+        optimizer=keras.optimizers.Adam(5e-6),
         loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=["accuracy"],
     )
@@ -783,14 +856,43 @@ def main() -> None:
         x_train,
         y_train,
         validation_data=(x_val, y_val),
-        epochs=10,
-        batch_size=16,
+        epochs=14,
+        batch_size=12,
         class_weight=class_weight,
+        callbacks=callbacks,
         verbose=2,
     )
+
+    # Extra pass only on Imp vs Post-Imp — force the model to separate them.
+    imp_i = ERAS.index("Impressionism")
+    post_i = ERAS.index("Post-Impressionism")
+    pair_mask = (y_train == imp_i) | (y_train == post_i)
+    pair_val = (y_val == imp_i) | (y_val == post_i)
+    if int(pair_mask.sum()) > 40 and int(pair_val.sum()) > 4:
+        print(
+            f"Imp↔Post refine on {int(pair_mask.sum())} train / "
+            f"{int(pair_val.sum())} val samples…",
+            flush=True,
+        )
+        model.compile(
+            optimizer=keras.optimizers.Adam(2e-6),
+            loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+            metrics=["accuracy"],
+        )
+        model.fit(
+            x_train[pair_mask],
+            y_train[pair_mask],
+            validation_data=(x_val[pair_val], y_val[pair_val]),
+            epochs=8,
+            batch_size=12,
+            class_weight={imp_i: 1.4, post_i: 1.25},
+            verbose=2,
+        )
+
     _, val_acc = model.evaluate(x_val, y_val, verbose=0)
     print(f"held-out unique accuracy: {val_acc:.3f}", flush=True)
-    export_tflite(model)
+    print_imp_post_confusion(model, x_val, y_val)
+    export_tflite(model, x_calib=x_val)
 
 
 if __name__ == "__main__":

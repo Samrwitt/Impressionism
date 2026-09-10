@@ -15,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId = "com.impressionism.app.impressionism_app"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 26)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -32,6 +32,17 @@ android {
             )
         }
     }
+
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "**/libtensorflowlite_gpu_jni.so",
+                "lib/armeabi-v7a/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
+        }
+    }
 }
 
 kotlin {
@@ -42,4 +53,17 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+configurations.all {
+    exclude(group = "org.tensorflow", module = "tensorflow-lite-gpu")
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.tensorflow" &&
+            (requested.name == "tensorflow-lite" ||
+                requested.name == "tensorflow-lite-api" ||
+                requested.name == "tensorflow-lite-gpu-api")
+        ) {
+            useVersion("2.16.1")
+        }
+    }
 }

@@ -25,16 +25,18 @@ def load_token() -> str:
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or ""
 
 
-def download_shard(index: int, token: str) -> Path:
+def download_shard(index: int, token: str) -> Path | None:
     SHARD_DIR.mkdir(parents=True, exist_ok=True)
     name = f"train-{index:05d}-of-00072.parquet"
     dest = SHARD_DIR / name
     if dest.exists() and dest.stat().st_size > 100_000_000:
         print(f"already have {dest} ({dest.stat().st_size / 1e6:.0f} MB)", flush=True)
         return dest
+    # Drop partial/corrupt leftovers.
+    if dest.exists() and dest.stat().st_size <= 100_000_000:
+        dest.unlink(missing_ok=True)
     url = f"{REPO}/data/{name}"
     print(f"curl {name} …", flush=True)
-    # Keep the token out of process argv (use a private curl config).
     with tempfile.NamedTemporaryFile("w", delete=False, prefix="hfcurl_", suffix=".cfg") as cfg:
         cfg.write(f'header = "Authorization: Bearer {token}"\n')
         cfg_path = Path(cfg.name)
@@ -45,9 +47,10 @@ def download_shard(index: int, token: str) -> Path:
             "-L",
             "--http1.1",
             "--retry",
-            "8",
+            "12",
+            "--retry-all-errors",
             "--retry-delay",
-            "5",
+            "8",
             "-C",
             "-",
             "-K",
@@ -58,11 +61,20 @@ def download_shard(index: int, token: str) -> Path:
             url,
         ]
         subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as exc:
+        print(f"shard {name} download failed ({exc}); skipping", flush=True)
+        if dest.exists() and dest.stat().st_size <= 100_000_000:
+            dest.unlink(missing_ok=True)
+        return None
     finally:
         try:
             cfg_path.unlink(missing_ok=True)
         except Exception:
             pass
+    if not dest.exists() or dest.stat().st_size <= 100_000_000:
+        print(f"shard {name} incomplete; skipping", flush=True)
+        dest.unlink(missing_ok=True)
+        return None
     print(f"saved {dest} ({dest.stat().st_size / 1e6:.0f} MB)", flush=True)
     return dest
 

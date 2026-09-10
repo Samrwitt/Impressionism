@@ -180,10 +180,10 @@ class _EraHomeState extends State<EraHome> {
                   const SizedBox(height: 8),
                   Text(
                     _booting
-                        ? 'Connecting to server…'
+                        ? 'Preparing…'
                         : (_error == null
                             ? ClassifierService.status
-                            : 'Server unavailable'),
+                            : 'Could not load the model'),
                     textAlign: TextAlign.center,
                     style: GoogleFonts.sourceSans3(
                       fontSize: 13,

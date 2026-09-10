@@ -21,10 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "artist_cache"
 SHARD_DIR = ROOT / "tools" / "data" / "wikiart_shards"
-IMG_SIZE = 160
-PER_ARTIST = 120
-AUG_PER_UNIQUE = 3
+IMG_SIZE = 224
+PER_ARTIST = 220
+AUG_PER_UNIQUE = 5
 SEED = 42
+MOBILENET_ALPHA = 1.0
 
 # Display name -> WikiArt artist id (huggan/wikiart ClassLabel index)
 ARTISTS = [
@@ -100,7 +101,11 @@ def load_from_shards(buckets: dict[str, list[np.ndarray]]) -> dict[str, list[np.
         if all(len(buckets[n]) >= PER_ARTIST for n, _ in ARTISTS):
             break
         print(f"  {shard.name}", flush=True)
-        table = pq.read_table(shard, columns=["image", "artist"])
+        try:
+            table = pq.read_table(shard, columns=["image", "artist"])
+        except Exception as exc:
+            print(f"  skip bad shard {shard.name}: {exc}", flush=True)
+            continue
         artists = table.column("artist").to_pylist()
         images = table.column("image")
         for i, aid in enumerate(artists):
@@ -151,7 +156,7 @@ def build_model(num_classes: int) -> tuple[keras.Model, keras.Model]:
         input_shape=(IMG_SIZE, IMG_SIZE, 3),
         include_top=False,
         weights="imagenet",
-        alpha=0.35,
+        alpha=MOBILENET_ALPHA,
         pooling="avg",
     )
     base.trainable = False
@@ -226,20 +231,20 @@ def main() -> None:
     )
     print("Training artist head…", flush=True)
     model.fit(
-        x_train, y_train, validation_data=(x_val, y_val), epochs=12, batch_size=24, verbose=2
+        x_train, y_train, validation_data=(x_val, y_val), epochs=14, batch_size=24, verbose=2
     )
 
     base.trainable = True
-    for layer in base.layers[:-40]:
+    for layer in base.layers[:-50]:
         layer.trainable = False
     model.compile(
-        optimizer=keras.optimizers.Adam(1e-5),
+        optimizer=keras.optimizers.Adam(8e-6),
         loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=["accuracy"],
     )
     print("Fine-tuning…", flush=True)
     model.fit(
-        x_train, y_train, validation_data=(x_val, y_val), epochs=8, batch_size=16, verbose=2
+        x_train, y_train, validation_data=(x_val, y_val), epochs=10, batch_size=16, verbose=2
     )
     _, acc = model.evaluate(x_val, y_val, verbose=0)
     print(f"held-out artist accuracy: {acc:.3f}", flush=True)
