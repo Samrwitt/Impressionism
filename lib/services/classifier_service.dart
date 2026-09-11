@@ -10,17 +10,22 @@ import '../models/prediction_result.dart';
 class ClassifierService {
   static Interpreter? _eraInterpreter;
   static Interpreter? _artistInterpreter;
+  static Interpreter? _impPostInterpreter;
   static List<(String era, String years)> _eraLabels = [];
   static List<String> _artistLabels = [];
+  static List<String> _impPostLabels = [];
   static bool _ready = false;
   static String status = 'Loading model…';
 
   static late List<List<List<List<double>>>> _eraInput;
   static List<List<List<List<double>>>>? _artistInput;
+  static List<List<List<List<double>>>>? _impPostInput;
   static late List<List<double>> _eraOut;
   static late List<List<double>> _artistOut;
-  static int _eraSize = 224;
+  static late List<List<double>> _impPostOut;
+  static int _eraSize = 192;
   static int _artistSize = 160;
+  static int _impPostSize = 224;
 
   static bool get isReady => _ready;
 
@@ -48,6 +53,18 @@ class ClassifierService {
       _artistLabels = [];
     }
 
+    try {
+      final impPostRaw =
+          await rootBundle.loadString('assets/models/imp_post_labels.txt');
+      _impPostLabels = impPostRaw
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    } catch (_) {
+      _impPostLabels = [];
+    }
+
     if (kIsWeb) {
       status = 'Use the Android app for the neural model';
       _ready = false;
@@ -71,6 +88,16 @@ class ClassifierService {
           _artistInterpreter = null;
         }
       }
+      if (_impPostLabels.length >= 2) {
+        try {
+          _impPostInterpreter = await Interpreter.fromAsset(
+            'assets/models/imp_post_model.tflite',
+            options: InterpreterOptions()..threads = 2,
+          );
+        } catch (_) {
+          _impPostInterpreter = null;
+        }
+      }
     } catch (_) {
       try {
         _eraInterpreter = await Interpreter.fromAsset(
@@ -92,7 +119,7 @@ class ClassifierService {
     }
 
     final eraShape = eraInterp.getInputTensor(0).shape;
-    _eraSize = eraShape.length >= 3 ? eraShape[1] : 224;
+    _eraSize = eraShape.length >= 3 ? eraShape[1] : 192;
     _eraInput = _allocInput(_eraSize);
     _eraOut =
         List.generate(1, (_) => List<double>.filled(_eraLabels.length, 0.0));
@@ -111,10 +138,27 @@ class ClassifierService {
       _artistOut = List.generate(1, (_) => List<double>.filled(1, 0.0));
     }
 
+    final impPostInterp = _impPostInterpreter;
+    if (impPostInterp != null && _impPostLabels.length >= 2) {
+      final shape = impPostInterp.getInputTensor(0).shape;
+      _impPostSize = shape.length >= 3 ? shape[1] : 224;
+      _impPostInput = _allocInput(_impPostSize);
+      _impPostOut = List.generate(1, (_) => List<double>.filled(2, 0.0));
+    } else {
+      _impPostInput = null;
+      _impPostOut = List.generate(1, (_) => List<double>.filled(2, 0.0));
+    }
+
     _ready = true;
-    final artistNote =
-        _artistInterpreter != null ? ' · ${_artistLabels.length} artists' : '';
-    status = 'On-device · ${_eraLabels.length} eras$artistNote';
+    final extras = <String>[];
+    if (_artistInterpreter != null) {
+      extras.add('${_artistLabels.length} artists');
+    }
+    if (_impPostInterpreter != null) {
+      extras.add('Imp/Post specialist');
+    }
+    final note = extras.isEmpty ? '' : ' · ${extras.join(' · ')}';
+    status = 'On-device · ${_eraLabels.length} eras$note';
   }
 
   static List<List<List<List<double>>>> _allocInput(int size) {
@@ -166,10 +210,7 @@ class ClassifierService {
       topArtists = topArtists.take(3).toList();
     }
 
-    eraProbs = _calibrateImpressionism(
-      eraProbs,
-      artistConfidence: artistConfidence,
-    );
+    eraProbs = _resolveImpPost(eraProbs, decoded, artistConfidence);
 
     final rankedEras = <EraScore>[];
     for (var i = 0; i < eraProbs.length; i++) {
@@ -196,10 +237,13 @@ class ClassifierService {
     );
   }
 
-  static List<double> _calibrateImpressionism(
-    List<double> probs, {
+  /// When the 8-era model is torn between Impressionism and Post-Impressionism,
+  /// defer to the dedicated binary specialist (plus a mild artist prior).
+  static List<double> _resolveImpPost(
+    List<double> probs,
+    img_pkg.Image decoded,
     double? artistConfidence,
-  }) {
+  ) {
     final impIdx = _eraLabels.indexWhere((e) => e.$1 == 'Impressionism');
     final postIdx =
         _eraLabels.indexWhere((e) => e.$1 == 'Post-Impressionism');
@@ -208,18 +252,63 @@ class ClassifierService {
     final out = List<double>.from(probs);
     final imp = out[impIdx];
     final post = out[postIdx];
-    final artistOk = (artistConfidence ?? 0) >= 0.35;
-    final close = (imp - post).abs() < 0.18;
-    final bothLikely = imp + post >= 0.45;
+    final pairMass = imp + post;
+    final gap = (imp - post).abs();
+    final ranked = List<double>.from(out)..sort((a, b) => b.compareTo(a));
+    final topIsPair = ranked.isNotEmpty &&
+        (ranked.first == imp || ranked.first == post);
+    final secondIsPair = ranked.length > 1 &&
+        (ranked[1] == imp || ranked[1] == post);
+    final contested = topIsPair &&
+        (secondIsPair || gap < 0.22) &&
+        pairMass >= 0.28;
 
-    // When Imp and Post-Imp are close and an Impressionist artist fires, lean Imp.
-    if (artistOk && bothLikely && post >= imp && (post - imp) < 0.28) {
-      final boost = 0.10 + ((artistConfidence! - 0.35) * 0.22);
-      out[impIdx] = (imp + boost).clamp(0.0, 0.96);
-      out[postIdx] = (post - boost * 0.85).clamp(0.0, 1.0);
-    } else if (!artistOk && bothLikely && close && post > imp) {
-      // Mild tempering only — don't invent Impressionism without artist support.
-      out[postIdx] = post * 0.92;
+    final impPostInterp = _impPostInterpreter;
+    final impPostInput = _impPostInput;
+    if (contested &&
+        impPostInterp != null &&
+        impPostInput != null &&
+        _impPostLabels.length >= 2) {
+      _fillBuffer(impPostInput, decoded, _impPostSize);
+      impPostInterp.run(impPostInput, _impPostOut);
+      final pair = _softmax(_impPostOut[0]);
+      // Blend: specialist dominates the Imp/Post slice; keep other eras.
+      final other = (1.0 - pairMass).clamp(0.0, 1.0);
+      final specialistImp = pair[0];
+      final specialistPost = pair[1];
+      var artistLean = 0.0;
+      if ((artistConfidence ?? 0) >= 0.40) {
+        artistLean = 0.06 + ((artistConfidence! - 0.40) * 0.12);
+      }
+      final blendedImp =
+          (specialistImp * 0.78 + (imp / math.max(pairMass, 1e-6)) * 0.22 +
+                  artistLean)
+              .clamp(0.0, 1.0);
+      final blendedPost =
+          (specialistPost * 0.78 + (post / math.max(pairMass, 1e-6)) * 0.22 -
+                  artistLean * 0.7)
+              .clamp(0.0, 1.0);
+      final norm = math.max(blendedImp + blendedPost, 1e-6);
+      out[impIdx] = pairMass * (blendedImp / norm);
+      out[postIdx] = pairMass * (blendedPost / norm);
+      // Preserve relative mass of other eras.
+      final otherSum = out.asMap().entries
+          .where((e) => e.key != impIdx && e.key != postIdx)
+          .fold<double>(0, (a, e) => a + e.value);
+      if (otherSum > 0 && other > 0) {
+        final scale = other / otherSum;
+        for (var i = 0; i < out.length; i++) {
+          if (i == impIdx || i == postIdx) continue;
+          out[i] *= scale;
+        }
+      }
+    } else if ((artistConfidence ?? 0) >= 0.45 &&
+        pairMass >= 0.40 &&
+        post >= imp &&
+        gap < 0.20) {
+      final boost = 0.08 + ((artistConfidence! - 0.45) * 0.2);
+      out[impIdx] = (imp + boost).clamp(0.0, 0.95);
+      out[postIdx] = (post - boost * 0.8).clamp(0.0, 1.0);
     }
 
     final sum = out.reduce((a, b) => a + b);
@@ -233,7 +322,10 @@ class ClassifierService {
       throw Exception('Could not read that image.');
     }
 
-    final prepSide = math.max(448, math.max(_eraSize, _artistSize) * 2);
+    final prepSide = math.max(
+      448,
+      math.max(_eraSize, math.max(_artistSize, _impPostSize)) * 2,
+    );
     final maxSide = math.max(decoded.width, decoded.height);
     if (maxSide > prepSide) {
       final scale = prepSide / maxSide;

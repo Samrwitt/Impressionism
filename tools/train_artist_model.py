@@ -21,11 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "artist_cache"
 SHARD_DIR = ROOT / "tools" / "data" / "wikiart_shards"
-IMG_SIZE = 224
+IMG_SIZE = 160
 PER_ARTIST = 220
 AUG_PER_UNIQUE = 5
 SEED = 42
-MOBILENET_ALPHA = 1.0
+MOBILENET_ALPHA = 0.75
 
 # Display name -> WikiArt artist id (huggan/wikiart ClassLabel index)
 ARTISTS = [

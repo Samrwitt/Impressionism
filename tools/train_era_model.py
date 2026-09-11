@@ -13,6 +13,8 @@ from collections import defaultdict
 from pathlib import Path
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_NUM_INTEROP_THREADS", "2")
+os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "4")
 
 import numpy as np
 from PIL import Image
@@ -23,20 +25,22 @@ from tensorflow.keras import layers
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "era_cache"
-IMG_SIZE = 224
+IMG_SIZE = 192
 PER_ERA = 500
-AUG_PER_UNIQUE = 5
+AUG_PER_UNIQUE = 4
 SEED = 42
 WIKIART_MAX_SCAN = 40000
 WIKIART_TIMEOUT_SEC = 3600
-COMMONS_PER_CATEGORY = 80
-MOBILENET_ALPHA = 1.0
+COMMONS_PER_CATEGORY = 100
+MOBILENET_ALPHA = 0.75
 # Extra budget for the eras the app confuses most.
 ERA_TARGETS = {
     "Impressionism": 650,
     "Post-Impressionism": 480,
     "Contemporary": 120,
 }
+# Keep Imp train uniques close to Post so the 8-era head doesn't drown Post-Imp.
+IMP_POST_BALANCE_RATIO = 1.2
 
 
 def era_target(era: str) -> int:
@@ -272,6 +276,10 @@ ERA_CATEGORIES = {
         "Category:Post-Impressionist paintings",
         "Category:Paintings by Vincent van Gogh",
         "Category:Paintings by Paul Cézanne",
+        "Category:Paintings by Paul Gauguin",
+        "Category:Paintings by Georges Seurat",
+        "Category:Paintings by Henri de Toulouse-Lautrec",
+        "Category:Pointillist paintings",
     ],
     "Modern": [
         "Category:Cubist paintings",
@@ -306,7 +314,7 @@ def decode(raw: bytes) -> np.ndarray | None:
         return None
 
 
-def http_get(url: str, retries: int = 4) -> bytes | None:
+def http_get(url: str, retries: int = 5) -> bytes | None:
     req = urllib.request.Request(
         url,
         headers={
@@ -315,22 +323,28 @@ def http_get(url: str, retries: int = 4) -> bytes | None:
         },
     )
     delay = 1.5
+    last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 data = resp.read()
-            time.sleep(0.35)  # be polite to Commons
+            time.sleep(0.4)  # be polite to Commons
             return data
         except Exception as exc:
-            msg = str(exc)
-            if "429" in msg or "503" in msg:
+            last_exc = exc
+            msg = str(exc).lower()
+            retryable = any(
+                s in msg
+                for s in ("429", "503", "104", "reset", "timed out", "temporary", "111")
+            )
+            if retryable and attempt + 1 < retries:
                 time.sleep(delay)
-                delay = min(delay * 2.0, 30.0)
+                delay = min(delay * 2.0, 40.0)
                 continue
-            if attempt == 0:
+            if attempt == 0 or not retryable:
                 print(f"  skip: {exc}", flush=True)
             return None
-    print(f"  skip: rate-limited {url[:80]}", flush=True)
+    print(f"  skip: gave up ({last_exc})", flush=True)
     return None
 
 
@@ -675,15 +689,13 @@ def build_model(num_classes: int) -> tuple[keras.Model, keras.Model]:
     )
     base.trainable = False
     x = base(x, training=False)
-    x = layers.Dropout(0.4)(x)
-    x = layers.Dense(256, activation="relu", name="feat")(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(0.35)(x)
     outputs = layers.Dense(num_classes, name="logits")(x)
     model = keras.Model(inputs, outputs, name="era_mobilenet")
     return model, base
 
 
-def export_tflite(model: keras.Model, x_calib: np.ndarray | None = None) -> None:
+def export_tflite(model: keras.Model, calib_imgs: list[np.ndarray] | None = None) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "labels.txt").write_text(
         "\n".join(f"{era}|{ERA_YEARS[era]}" for era in ERAS) + "\n",
@@ -691,10 +703,10 @@ def export_tflite(model: keras.Model, x_calib: np.ndarray | None = None) -> None
     )
 
     def rep_data():
-        if x_calib is not None and len(x_calib) > 0:
-            idx = np.linspace(0, len(x_calib) - 1, num=min(80, len(x_calib))).astype(int)
-            for i in idx:
-                yield [x_calib[i : i + 1].astype(np.float32)]
+        if calib_imgs:
+            n = min(64, len(calib_imgs))
+            for i in range(n):
+                yield [calib_imgs[i].astype(np.float32)[None, ...] / 255.0]
         else:
             for _ in range(40):
                 yield [np.random.rand(1, IMG_SIZE, IMG_SIZE, 3).astype(np.float32)]
@@ -709,32 +721,67 @@ def export_tflite(model: keras.Model, x_calib: np.ndarray | None = None) -> None
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} KB)", flush=True)
 
 
-def pack(
-    imgs: list[np.ndarray],
-    label: int,
-    rng: np.random.Generator,
-    n_aug: int,
-    strong: bool = False,
-):
-    xs: list[np.ndarray] = []
-    ys: list[int] = []
-    for im in imgs:
-        xs.append(im.astype(np.float32) / 255.0)
-        ys.append(label)
-        for _ in range(n_aug):
-            xs.append(augment(im, rng, strong=strong).astype(np.float32) / 255.0)
-            ys.append(label)
-    return xs, ys
+class EraSeq(keras.utils.Sequence):
+    def __init__(
+        self,
+        imgs: list[np.ndarray],
+        labels: list[int],
+        batch_size: int,
+        aug_of: list[int],
+        strong_of: list[bool],
+        shuffle: bool,
+        seed: int,
+    ):
+        self.imgs = imgs
+        self.labels = np.asarray(labels, dtype=np.int32)
+        self.batch_size = batch_size
+        self.aug_of = aug_of
+        self.strong_of = strong_of
+        self.shuffle = shuffle
+        self.rng = np.random.default_rng(seed)
+        self.pairs: list[tuple[int, int]] = []
+        for i, n_aug in enumerate(aug_of):
+            for k in range(n_aug + 1):
+                self.pairs.append((i, k))
+        self.on_epoch_end()
+
+    def __len__(self) -> int:
+        return max(1, int(np.ceil(len(self.pairs) / self.batch_size)))
+
+    def on_epoch_end(self) -> None:
+        if self.shuffle:
+            self.rng.shuffle(self.pairs)
+
+    def __getitem__(self, idx: int):
+        chunk = self.pairs[idx * self.batch_size : (idx + 1) * self.batch_size]
+        xs = np.empty((len(chunk), IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
+        ys = np.empty((len(chunk),), dtype=np.int32)
+        for j, (i, k) in enumerate(chunk):
+            im = self.imgs[i]
+            if k == 0:
+                arr = im
+            else:
+                arr = augment(im, self.rng, strong=self.strong_of[i])
+            xs[j] = arr.astype(np.float32) / 255.0
+            ys[j] = self.labels[i]
+        return xs, ys
 
 
-def print_imp_post_confusion(model: keras.Model, x_val: np.ndarray, y_val: np.ndarray) -> None:
+def print_imp_post_confusion(
+    model: keras.Model, imgs: list[np.ndarray], labels: list[int]
+) -> None:
     imp_i = ERAS.index("Impressionism")
     post_i = ERAS.index("Post-Impressionism")
-    mask = (y_val == imp_i) | (y_val == post_i)
-    if not np.any(mask):
+    pair = [
+        (im, y)
+        for im, y in zip(imgs, labels)
+        if y in (imp_i, post_i)
+    ]
+    if len(pair) < 4:
         return
-    preds = np.argmax(model.predict(x_val[mask], verbose=0), axis=1)
-    yt = y_val[mask]
+    x = np.stack([im.astype(np.float32) / 255.0 for im, _ in pair])
+    yt = np.array([y for _, y in pair], dtype=np.int32)
+    preds = np.argmax(model.predict(x, verbose=0), axis=1)
     tp_imp = int(np.sum((yt == imp_i) & (preds == imp_i)))
     fn_imp = int(np.sum((yt == imp_i) & (preds == post_i)))
     tp_post = int(np.sum((yt == post_i) & (preds == post_i)))
@@ -758,58 +805,87 @@ def main() -> None:
     buckets = load_wikimedia(buckets)
     buckets = load_commons_categories(buckets)
 
-    x_train_list: list[np.ndarray] = []
-    y_train_list: list[int] = []
-    x_val_list: list[np.ndarray] = []
-    y_val_list: list[int] = []
-
-    for idx, era in enumerate(ERAS):
+    by_era_train: dict[str, list[np.ndarray]] = {}
+    by_era_val: dict[str, list[np.ndarray]] = {}
+    for era in ERAS:
         samples = list(buckets[era])
         if len(samples) < 4:
             raise RuntimeError(f"Too few unique images for {era}: {len(samples)}")
         order = rng.permutation(len(samples))
         samples = [samples[i] for i in order]
-        # Hold out unique paintings (not augmented copies) for validation.
         n_val = max(2, int(round(len(samples) * 0.2)))
         val_imgs = samples[:n_val]
         train_imgs = samples[n_val:]
         if not train_imgs:
             train_imgs, val_imgs = samples[:-1], samples[-1:]
-
-        # Cap train uniques used for augmentation budget.
         cap = era_target(era)
         if len(train_imgs) > cap:
             train_imgs = train_imgs[:cap]
+        by_era_train[era] = train_imgs
+        by_era_val[era] = val_imgs
 
-        # Extra augs + stronger jitter for Imp / Post-Imp.
-        hard = era in ("Impressionism", "Post-Impressionism")
-        n_aug = AUG_PER_UNIQUE + (3 if hard else 0)
-        tx, ty = pack(train_imgs, idx, rng, n_aug, strong=hard)
-        vx, vy = pack(val_imgs, idx, rng, 0)  # no aug in val
+    post_n = len(by_era_train["Post-Impressionism"])
+    imp_cap = max(post_n, int(round(post_n * IMP_POST_BALANCE_RATIO)))
+    if len(by_era_train["Impressionism"]) > imp_cap:
+        by_era_train["Impressionism"] = by_era_train["Impressionism"][:imp_cap]
         print(
-            f"{era}: train_unique={len(train_imgs)} val_unique={len(val_imgs)} "
-            f"train_aug={len(tx)}",
+            f"balanced Imp train uniques → {imp_cap} (Post={post_n})",
             flush=True,
         )
-        x_train_list.extend(tx)
-        y_train_list.extend(ty)
-        x_val_list.extend(vx)
-        y_val_list.extend(vy)
 
-    x_train = np.stack(x_train_list, axis=0)
-    y_train = np.array(y_train_list, dtype=np.int32)
-    x_val = np.stack(x_val_list, axis=0)
-    y_val = np.array(y_val_list, dtype=np.int32)
-    perm = rng.permutation(len(x_train))
-    x_train, y_train = x_train[perm], y_train[perm]
+    train_imgs: list[np.ndarray] = []
+    train_y: list[int] = []
+    train_aug: list[int] = []
+    train_strong: list[bool] = []
+    val_imgs: list[np.ndarray] = []
+    val_y: list[int] = []
 
-    # Balanced weights; boost Imp slightly so it isn't swallowed by Post-Imp.
-    counts = np.bincount(y_train, minlength=len(ERAS)).astype(np.float32)
+    for idx, era in enumerate(ERAS):
+        tr = by_era_train[era]
+        va = by_era_val[era]
+        hard = era in ("Impressionism", "Post-Impressionism")
+        if era == "Post-Impressionism":
+            n_aug = AUG_PER_UNIQUE + 4
+        elif era == "Impressionism":
+            n_aug = AUG_PER_UNIQUE + 2
+        else:
+            n_aug = AUG_PER_UNIQUE
+        print(
+            f"{era}: train_unique={len(tr)} val_unique={len(va)} aug_per={n_aug}",
+            flush=True,
+        )
+        for im in tr:
+            train_imgs.append(im)
+            train_y.append(idx)
+            train_aug.append(n_aug)
+            train_strong.append(hard)
+        for im in va:
+            val_imgs.append(im)
+            val_y.append(idx)
+
+    batch = 12
+    train_seq = EraSeq(train_imgs, train_y, batch, train_aug, train_strong, True, SEED)
+    val_seq = EraSeq(
+        val_imgs,
+        val_y,
+        batch,
+        [0] * len(val_imgs),
+        [False] * len(val_imgs),
+        False,
+        SEED + 1,
+    )
+
+    counts = np.bincount(np.asarray(train_y), minlength=len(ERAS)).astype(np.float32)
     inv = counts.sum() / np.maximum(counts, 1.0)
     class_weight = {i: float(inv[i] / inv.mean()) for i in range(len(ERAS))}
-    class_weight[ERAS.index("Impressionism")] *= 1.35
-    class_weight[ERAS.index("Post-Impressionism")] *= 1.15
-    print("class_weight", {ERAS[i]: round(w, 3) for i, w in class_weight.items()}, flush=True)
+    class_weight[ERAS.index("Impressionism")] *= 1.15
+    class_weight[ERAS.index("Post-Impressionism")] *= 1.45
+    print(
+        "class_weight",
+        {ERAS[i]: round(w, 3) for i, w in class_weight.items()},
+        flush=True,
+    )
+    print(f"train_steps={len(train_seq)} val_steps={len(val_seq)}", flush=True)
 
     callbacks = [
         keras.callbacks.EarlyStopping(
@@ -833,18 +909,16 @@ def main() -> None:
     )
     print("Training classification head…", flush=True)
     model.fit(
-        x_train,
-        y_train,
-        validation_data=(x_val, y_val),
-        epochs=18,
-        batch_size=16,
+        train_seq,
+        validation_data=val_seq,
+        epochs=14,
         class_weight=class_weight,
         callbacks=callbacks,
         verbose=2,
     )
 
     base.trainable = True
-    for layer in base.layers[:-90]:
+    for layer in base.layers[:-80]:
         layer.trainable = False
     model.compile(
         optimizer=keras.optimizers.Adam(5e-6),
@@ -853,26 +927,46 @@ def main() -> None:
     )
     print("Fine-tuning last MobileNet blocks…", flush=True)
     model.fit(
-        x_train,
-        y_train,
-        validation_data=(x_val, y_val),
-        epochs=14,
-        batch_size=12,
+        train_seq,
+        validation_data=val_seq,
+        epochs=10,
         class_weight=class_weight,
         callbacks=callbacks,
         verbose=2,
     )
 
-    # Extra pass only on Imp vs Post-Imp — force the model to separate them.
+    # Extra pass only on Imp vs Post-Imp uniques.
     imp_i = ERAS.index("Impressionism")
     post_i = ERAS.index("Post-Impressionism")
-    pair_mask = (y_train == imp_i) | (y_train == post_i)
-    pair_val = (y_val == imp_i) | (y_val == post_i)
-    if int(pair_mask.sum()) > 40 and int(pair_val.sum()) > 4:
+    pair_tr_imgs, pair_tr_y, pair_tr_aug, pair_tr_strong = [], [], [], []
+    pair_va_imgs, pair_va_y = [], []
+    for im, y, n_aug, strong in zip(train_imgs, train_y, train_aug, train_strong):
+        if y in (imp_i, post_i):
+            pair_tr_imgs.append(im)
+            pair_tr_y.append(y)
+            pair_tr_aug.append(n_aug)
+            pair_tr_strong.append(True)
+    for im, y in zip(val_imgs, val_y):
+        if y in (imp_i, post_i):
+            pair_va_imgs.append(im)
+            pair_va_y.append(y)
+    if len(pair_tr_imgs) > 40 and len(pair_va_imgs) > 4:
         print(
-            f"Imp↔Post refine on {int(pair_mask.sum())} train / "
-            f"{int(pair_val.sum())} val samples…",
+            f"Imp↔Post refine on {len(pair_tr_imgs)} train / "
+            f"{len(pair_va_imgs)} val uniques…",
             flush=True,
+        )
+        pair_train = EraSeq(
+            pair_tr_imgs, pair_tr_y, batch, pair_tr_aug, pair_tr_strong, True, SEED + 2
+        )
+        pair_val = EraSeq(
+            pair_va_imgs,
+            pair_va_y,
+            batch,
+            [0] * len(pair_va_imgs),
+            [False] * len(pair_va_imgs),
+            False,
+            SEED + 3,
         )
         model.compile(
             optimizer=keras.optimizers.Adam(2e-6),
@@ -880,19 +974,20 @@ def main() -> None:
             metrics=["accuracy"],
         )
         model.fit(
-            x_train[pair_mask],
-            y_train[pair_mask],
-            validation_data=(x_val[pair_val], y_val[pair_val]),
-            epochs=8,
-            batch_size=12,
-            class_weight={imp_i: 1.4, post_i: 1.25},
+            pair_train,
+            validation_data=pair_val,
+            epochs=6,
+            class_weight={imp_i: 1.2, post_i: 1.4},
             verbose=2,
         )
 
+    x_val = np.stack([im.astype(np.float32) / 255.0 for im in val_imgs])
+    y_val = np.asarray(val_y, dtype=np.int32)
     _, val_acc = model.evaluate(x_val, y_val, verbose=0)
     print(f"held-out unique accuracy: {val_acc:.3f}", flush=True)
-    print_imp_post_confusion(model, x_val, y_val)
-    export_tflite(model, x_calib=x_val)
+    print_imp_post_confusion(model, val_imgs, val_y)
+    export_tflite(model, calib_imgs=val_imgs)
+    del x_val
 
 
 if __name__ == "__main__":

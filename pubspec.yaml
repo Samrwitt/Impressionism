@@ -45,3 +45,5 @@ flutter:
     - assets/models/labels.txt
     - assets/models/artist_model.tflite
     - assets/models/artist_labels.txt
+    - assets/models/imp_post_model.tflite
+    - assets/models/imp_post_labels.txt
