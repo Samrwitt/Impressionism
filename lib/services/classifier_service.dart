@@ -186,9 +186,22 @@ class ClassifierService {
     double? artistConfidence;
     var topArtists = <ArtistScore>[];
 
+    // Monet/Renoir/Degas/Pissarro only make sense for Impressionism.
+    // Still run the head early when Imp is competitive so Imp↔Post
+    // calibration can use it; hide the guess unless final era is Imp.
+    final impIdx = _eraLabels.indexWhere((e) => e.$1 == 'Impressionism');
+    final rankedBefore = List<int>.generate(eraProbs.length, (i) => i)
+      ..sort((a, b) => eraProbs[b].compareTo(eraProbs[a]));
+    final impCompetitive = impIdx >= 0 &&
+        (rankedBefore.first == impIdx ||
+            (rankedBefore.length > 1 &&
+                rankedBefore[1] == impIdx &&
+                eraProbs[impIdx] >= 0.18));
+
     final artistInterpreter = _artistInterpreter;
     final artistInput = _artistInput;
-    if (artistInterpreter != null &&
+    if (impCompetitive &&
+        artistInterpreter != null &&
         artistInput != null &&
         _artistLabels.isNotEmpty) {
       _fillBuffer(artistInput, decoded, _artistSize);
@@ -225,6 +238,12 @@ class ClassifierService {
     }
     rankedEras.sort((a, b) => b.score.compareTo(a.score));
     final topEra = rankedEras.first;
+
+    if (topEra.era != 'Impressionism') {
+      artist = null;
+      artistConfidence = null;
+      topArtists = [];
+    }
 
     return PredictionResult(
       era: topEra.era,

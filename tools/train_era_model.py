@@ -26,21 +26,39 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "models"
 CACHE = ROOT / "tools" / "data" / "era_cache"
 IMG_SIZE = 192
-PER_ERA = 500
+PER_ERA = 1000
 AUG_PER_UNIQUE = 4
 SEED = 42
-WIKIART_MAX_SCAN = 40000
-WIKIART_TIMEOUT_SEC = 3600
-COMMONS_PER_CATEGORY = 100
+WIKIART_MAX_SCAN = 120000
+WIKIART_TIMEOUT_SEC = 10800
+COMMONS_PER_CATEGORY = 120
 MOBILENET_ALPHA = 0.75
-# Extra budget for the eras the app confuses most.
+# Extra budget for eras that were starved or newly added.
 ERA_TARGETS = {
-    "Impressionism": 650,
-    "Post-Impressionism": 480,
-    "Contemporary": 120,
+    "Impressionism": 1400,
+    "Post-Impressionism": 1000,
+    "Symbolism": 800,
+    "Art Nouveau": 800,
+    "Realism": 1200,
+    "Romanticism": 900,
+    "Baroque": 800,
+    "Renaissance": 800,
+    "Modern": 850,
+    "Contemporary": 400,
 }
-# Keep Imp train uniques close to Post so the 8-era head doesn't drown Post-Imp.
-IMP_POST_BALANCE_RATIO = 1.2
+# Keep Imp train uniques close to Post so the era head doesn't drown Post-Imp.
+IMP_POST_BALANCE_RATIO = 1.1
+# Eras that historically under-recall vs Imp/Post — extra augs + weight.
+HARD_ERAS = {
+    "Impressionism",
+    "Post-Impressionism",
+    "Realism",
+    "Romanticism",
+    "Baroque",
+    "Modern",
+    "Symbolism",
+    "Art Nouveau",
+}
 
 
 def era_target(era: str) -> int:
@@ -78,6 +96,8 @@ ERAS = [
     "Realism",
     "Impressionism",
     "Post-Impressionism",
+    "Symbolism",
+    "Art Nouveau",
     "Modern",
     "Contemporary",
 ]
@@ -89,6 +109,8 @@ ERA_YEARS = {
     "Realism": "c. 1840–1880",
     "Impressionism": "c. 1860–1890",
     "Post-Impressionism": "c. 1886–1905",
+    "Symbolism": "c. 1880–1910",
+    "Art Nouveau": "c. 1890–1910",
     "Modern": "c. 1900–1945",
     "Contemporary": "c. 1945–today",
 }
@@ -105,9 +127,8 @@ STYLE_TO_ERA = {
     "Impressionism": "Impressionism",
     "Post_Impressionism": "Post-Impressionism",
     "Pointillism": "Post-Impressionism",
-    # Symbolism looks very different from Post-Imp — do NOT fold it in
-    # (it previously muddied Imp vs Post-Imp boundaries).
-    "Art_Nouveau": "Modern",
+    "Symbolism": "Symbolism",
+    "Art_Nouveau": "Art Nouveau",
     "Cubism": "Modern",
     "Analytical_Cubism": "Modern",
     "Synthetic_Cubism": "Modern",
@@ -120,6 +141,7 @@ STYLE_TO_ERA = {
     "Minimalism": "Contemporary",
     "Pop_Art": "Contemporary",
     "New_Realism": "Contemporary",
+    "Naive_Art_Primitivism": "Contemporary",
 }
 
 FILES = {
@@ -207,6 +229,34 @@ FILES = {
         "Henri de Toulouse-Lautrec - At the Moulin Rouge.jpg",
         "Vincent van Gogh - Self-Portrait with Grey Felt Hat.jpg",
     ],
+    "Symbolism": [
+        "Arnold Böcklin - Island of the Dead.jpg",
+        "Gustave Moreau - Oedipus and the Sphinx.jpg",
+        "Odilon Redon - The Cyclops.jpg",
+        "Pierre Puvis de Chavannes - Young Girls by the Seaside.jpg",
+        "Fernand Khnopff - Caress of the Sphinx.jpg",
+        "Jean Delville - The Treasures of Satan.jpg",
+        "Carlos Schwabe - The Death of the Gravedigger.jpg",
+        "Gustave Moreau - The Apparition.jpg",
+        "Odilon Redon - Closed Eyes.jpg",
+        "Franz von Stuck - The Sin.jpg",
+        "Arnold Böcklin - Self-Portrait with Death Playing the Fiddle.jpg",
+        "Pierre Puvis de Chavannes - The Poor Fisherman.jpg",
+    ],
+    "Art Nouveau": [
+        "Gustav Klimt - The Kiss - Google Art Project.jpg",
+        "Alphonse Mucha - Zodiac.jpg",
+        "Gustav Klimt - Portrait of Adele Bloch-Bauer I.jpg",
+        "Alphonse Mucha - Job.jpg",
+        "Gustav Klimt - Judith and the Head of Holofernes.jpg",
+        "Alphonse Mucha - La Dame aux Camelias.jpg",
+        "Gustav Klimt - Danaë.jpg",
+        "Koloman Moser - Venus in the Grotto.jpg",
+        "Gustav Klimt - Beethoven Frieze - The Hostile Powers.jpg",
+        "Alphonse Mucha - Biscuits Lefèvre-Utile.jpg",
+        "Gustav Klimt - Water Serpents I.jpg",
+        "Margaret Macdonald Mackintosh - The May Queen.jpg",
+    ],
     "Modern": [
         "Vassily Kandinsky, 1913 - Composition 7.jpg",
         "Piet Mondriaan, 1930 - Mondrian Composition II in Red, Blue, and Yellow.jpg",
@@ -281,10 +331,22 @@ ERA_CATEGORIES = {
         "Category:Paintings by Henri de Toulouse-Lautrec",
         "Category:Pointillist paintings",
     ],
+    "Symbolism": [
+        "Category:Symbolist paintings",
+        "Category:Paintings by Odilon Redon",
+        "Category:Paintings by Gustave Moreau",
+        "Category:Paintings by Arnold Böcklin",
+    ],
+    "Art Nouveau": [
+        "Category:Art Nouveau paintings",
+        "Category:Paintings by Gustav Klimt",
+        "Category:Works by Alphonse Mucha",
+    ],
     "Modern": [
         "Category:Cubist paintings",
         "Category:Expressionist paintings",
         "Category:Paintings by Pablo Picasso",
+        "Category:Fauvist paintings",
     ],
     "Contemporary": [
         "Category:Abstract expressionist paintings",
@@ -795,6 +857,25 @@ def print_imp_post_confusion(
     )
 
 
+def print_era_recalls(
+    model: keras.Model, imgs: list[np.ndarray], labels: list[int]
+) -> None:
+    if not imgs:
+        return
+    x = np.stack([im.astype(np.float32) / 255.0 for im in imgs])
+    yt = np.asarray(labels, dtype=np.int32)
+    preds = np.argmax(model.predict(x, verbose=0), axis=1)
+    print("held-out per-era recall:", flush=True)
+    for i, era in enumerate(ERAS):
+        mask = yt == i
+        n = int(mask.sum())
+        if n == 0:
+            print(f"  {era}: n=0", flush=True)
+            continue
+        hit = int(np.sum(preds[mask] == i))
+        print(f"  {era}: {hit}/{n} = {hit / n:.1%}", flush=True)
+
+
 def main() -> None:
     tf.random.set_seed(SEED)
     rng = np.random.default_rng(SEED)
@@ -843,11 +924,13 @@ def main() -> None:
     for idx, era in enumerate(ERAS):
         tr = by_era_train[era]
         va = by_era_val[era]
-        hard = era in ("Impressionism", "Post-Impressionism")
+        hard = era in HARD_ERAS
         if era == "Post-Impressionism":
             n_aug = AUG_PER_UNIQUE + 4
-        elif era == "Impressionism":
+        elif era in ("Impressionism", "Realism", "Romanticism", "Baroque", "Modern"):
             n_aug = AUG_PER_UNIQUE + 2
+        elif era in ("Symbolism", "Art Nouveau"):
+            n_aug = AUG_PER_UNIQUE + 3
         else:
             n_aug = AUG_PER_UNIQUE
         print(
@@ -880,6 +963,8 @@ def main() -> None:
     class_weight = {i: float(inv[i] / inv.mean()) for i in range(len(ERAS))}
     class_weight[ERAS.index("Impressionism")] *= 1.15
     class_weight[ERAS.index("Post-Impressionism")] *= 1.45
+    for era in ("Realism", "Romanticism", "Baroque", "Modern", "Symbolism", "Art Nouveau"):
+        class_weight[ERAS.index(era)] *= 1.25
     print(
         "class_weight",
         {ERAS[i]: round(w, 3) for i, w in class_weight.items()},
@@ -985,6 +1070,7 @@ def main() -> None:
     y_val = np.asarray(val_y, dtype=np.int32)
     _, val_acc = model.evaluate(x_val, y_val, verbose=0)
     print(f"held-out unique accuracy: {val_acc:.3f}", flush=True)
+    print_era_recalls(model, val_imgs, val_y)
     print_imp_post_confusion(model, val_imgs, val_y)
     export_tflite(model, calib_imgs=val_imgs)
     del x_val

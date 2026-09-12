@@ -27,6 +27,8 @@ ERA_YEARS = {
     "Realism": "c. 1840–1880",
     "Impressionism": "c. 1860–1890",
     "Post-Impressionism": "c. 1886–1905",
+    "Symbolism": "c. 1880–1910",
+    "Art Nouveau": "c. 1890–1910",
     "Modern": "c. 1900–1945",
     "Contemporary": "c. 1945–today",
 }
@@ -78,14 +80,15 @@ STYLE_TO_ERA: dict[str, str] = {
     "post_impressionism": "Post-Impressionism",
     "pointillism": "Post-Impressionism",
     "divisionism": "Post-Impressionism",
-    "symbolism": "Post-Impressionism",
     "cloisonnism": "Post-Impressionism",
     "synthetism": "Post-Impressionism",
     "nabis": "Post-Impressionism",
+    # Symbolism / Art Nouveau
+    "symbolism": "Symbolism",
+    "art_nouveau_(modern)": "Art Nouveau",
+    "art_nouveau": "Art Nouveau",
+    "modernismo": "Art Nouveau",
     # Modern
-    "art_nouveau_(modern)": "Modern",
-    "art_nouveau": "Modern",
-    "modernismo": "Modern",
     "cubism": "Modern",
     "analytical_cubism": "Modern",
     "synthetic_cubism": "Modern",
